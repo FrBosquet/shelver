@@ -25,11 +25,11 @@ function artwork(): Asset {
 }
 
 describe('Steam composition', () => {
-  it.each(workingFormats)('makes the front gradient editable at half of the front width in $id', (format) => {
+  it.each(workingFormats)('makes the front gradient editable at three quarters of the front width in $id', (format) => {
     const project = createSteamProject(format)
     const gradient = project.composition.elements.find((element) => element.id.endsWith(':platform:surface'))!
     const front = format.panels.find((panel) => panel.id === 'front')!
-    expect(gradient).toMatchObject({ type: 'shape', x: front.x, width: front.width * 0.5, locked: false })
+    expect(gradient).toMatchObject({ type: 'shape', x: front.x, width: front.width * 0.75, locked: false })
     const resized = { ...gradient, scaleX: 1.5, scaleY: 2, x: gradient.x + 20 }
     const saved = captureDesignEdits(project, project.composition.elements.map((element) => element.id === gradient.id ? resized : element))
     expect(composeDesign(saved).composition.elements.find((element) => element.id === gradient.id)).toMatchObject(resized)
