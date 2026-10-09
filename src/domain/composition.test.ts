@@ -113,7 +113,7 @@ describe('Steam composition', () => {
     expect(validProject(project)).toBe(true)
     expect(project.composition.design!.blocks.map((b) => b.kind)).toEqual(expect.arrayContaining(['gallery', 'requirements', 'features', 'rating', 'publisher', 'spine']))
     expect(project.composition.elements.filter((el) => el.id.endsWith('-caption')).every((el) => el.styleRef === 'caption')).toBe(true)
-    expect(referencedAssetIds(project)).toEqual(['builtin:steam-logo-white:1', 'builtin:steam-logo-black:1'])
+    expect(referencedAssetIds(project)).toEqual(['builtin:default-image:1', 'builtin:steam-logo-white:1', 'builtin:steam-logo-black:1'])
     expect(composeDesign(project)).toEqual(project)
   })
 
@@ -262,7 +262,7 @@ describe('Steam composition', () => {
     expect(recovered.composition.design!.instanceId).not.toBe(design.instanceId)
     const newAssetId = recovered.composition.design!.images.gameLogo.assetId
     expect(newAssetId).not.toBe(asset.id)
-    expect(recovered.composition.elements.filter((el) => el.type === 'image').map((el) => el.assetId)).toEqual(['builtin:steam-logo-white:1', 'builtin:steam-logo-black:1', newAssetId])
+    expect(recovered.composition.elements.filter((el) => el.type === 'image' && el.assetId !== 'builtin:default-image:1').map((el) => el.assetId)).toEqual(['builtin:steam-logo-white:1', 'builtin:steam-logo-black:1', newAssetId])
     expect(text(recovered, 'shot-1-caption').fill).toBe('#aa0000')
     expect(composeDesign(recovered)).toEqual(recovered)
   })

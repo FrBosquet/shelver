@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
-import { builtinAsset, builtinAssets, sharedLogos, steamLogoFor } from './logoLibrary'
+import { builtinAsset, builtinAssets, defaultImageAssetId, sharedLogos, steamLogoFor } from './logoLibrary'
 import { createSteamProject, workingFormats } from '../domain/steamTemplate'
 import { captureDesignEdits, composeDesign, placementOf, referencedAssetIds } from '../domain/composition'
 import { createProject, pcTemplate } from '../domain/projects'
@@ -20,6 +20,17 @@ function workspace() {
 }
 
 describe('shared SVG logos', () => {
+  it('uses bundled images for empty artwork and screenshots and replaces them with selected assets', () => {
+    const project = createSteamProject()
+    const images = project.composition.elements.filter((element) => element.type === 'image' && element.assetId === defaultImageAssetId)
+    expect(images).toHaveLength(5)
+    expect(images.every((element) => element.type === 'image' && element.fit === 'cover')).toBe(true)
+    expect(project.composition.elements.some((element) => element.type === 'text' && /Upload your illustration|SCREENSHOT|ARTWORK/.test(element.text))).toBe(false)
+    project.composition.design!.images.frontArt = { assetId: 'custom-art', fit: 'cover', focalX: 0.2, focalY: 0.7 }
+    const updated = composeDesign(project)
+    expect(updated.composition.elements.find((element) => element.id.endsWith(':front-art:art'))).toMatchObject({ type: 'image', assetId: 'custom-art', focalX: 0.2, focalY: 0.7 })
+  })
+
   it('uses contrast-aware real logos in both panels and keeps proportions when changing format', () => {
     let project = createSteamProject()
     const find = (suffix: string) => project.composition.elements.find((element) => element.id.endsWith(suffix))! as ImageElement
@@ -59,7 +70,7 @@ describe('shared SVG logos', () => {
     expect((await storage.load()).assets).toEqual({})
     const reopened = new WorkspaceStore(storage); await reopened.load()
     expect(reopened.getSnapshot().projects.find((project) => project.id === id)!.composition.elements.at(-1)).toEqual(image)
-    expect(referencedAssetIds(reopened.getSnapshot().projects.find((project) => project.id === steam)!)).toHaveLength(2)
+    expect(referencedAssetIds(reopened.getSnapshot().projects.find((project) => project.id === steam)!)).toHaveLength(3)
     expect(Object.keys(reopened.getSnapshot().assets)).toEqual(Object.keys(builtinAssets))
     expect(await reopened.getSnapshot().assets[asset.id].blob.text()).toBe(sharedLogos[0].svg)
   })
@@ -69,7 +80,7 @@ describe('shared SVG logos', () => {
     const blob = await exportCoverProject(original, {})
     const files = unzipSync(new Uint8Array(await blob.arrayBuffer()))
     const manifest = JSON.parse(strFromU8(files['manifest.json']))
-    expect(manifest.assets).toHaveLength(2)
+    expect(manifest.assets).toHaveLength(3)
     for (const descriptor of manifest.assets) {
       expect(descriptor.mimeType).toBe('image/svg+xml')
       expect(descriptor.path).toMatch(/\.svg$/)

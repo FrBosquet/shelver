@@ -1,7 +1,7 @@
 import { tableIcons } from './tableIcons'
 import { elementAssetIds, remapElementAssets } from './elementTypes'
 import type { ColorRole, CoverDesign, DesignBlock, Element, ElementOverride, Format, Placement, Project, RatingElement, TextRole } from './types'
-import { steamLogoFor } from '../assets/logoLibrary'
+import { defaultImageAssetId, steamLogoFor } from '../assets/logoLibrary'
 
 export function placementOf(element: Element, format: Format, panelId?: DesignBlock['panel']): Placement {
   const panel = format.panels.find((p) => p.id === panelId) ?? [...format.panels].reverse().find((p) => element.x >= p.x) ?? format.panels[0]
@@ -59,19 +59,12 @@ export function composeDesign(project: Project): Project {
         fontRole: style.font, fontFamily: design.styles.fonts[style.font], fontSize: style.size * typeScale, fill: colors[style.color], fontWeight: style.weight, textAlign: style.align, lineHeight: 1.15, styleRef: role, ...extra })
     }
     const picture = (key: string, assetKey: string, label: string, dx = 0, dy = 0, dw = w, dh = h, contain = false, defaultAssetId?: string) => {
-      const image = design.images[assetKey] ?? (defaultAssetId ? { assetId: defaultAssetId, fit: 'contain' as const, focalX: 0.5, focalY: 0.5 } : undefined)
-      if (image) result.push({ ...base(key, label, dx, dy, dw, dh), type: 'image', assetId: image.assetId, fit: contain ? 'contain' : image.fit, focalX: image.focalX, focalY: image.focalY })
-      else {
-        shape(`${key}-surface`, block.panel === 'front' || block.kind === 'gallery' ? 'brand' : 'artwork', dx, dy, dw, dh)
-        text(`${key}-placeholder`, label, 'caption', dx + dw * 0.06, dy + dh * 0.4, dw * 0.88, dh * 0.5, { fill: block.panel === 'front' || block.kind === 'gallery' ? colors.onTechnical : colors.onArtwork, fontFamily: design.styles.fonts.technical, fontSize: Math.min(18 * Math.max(typeScale, 0.4), dw * 0.1) })
-      }
+      const image = design.images[assetKey] ?? { assetId: defaultAssetId ?? defaultImageAssetId, fit: defaultAssetId ? 'contain' as const : 'cover' as const, focalX: 0.5, focalY: 0.5 }
+      result.push({ ...base(key, label, dx, dy, dw, dh), type: 'image', assetId: image.assetId, fit: contain ? 'contain' : image.fit, focalX: image.focalX, focalY: image.focalY })
     }
     switch (block.kind) {
       case 'artwork':
-        if (block.panel === 'back' && !design.images.backArt) {
-          shape('art-surface', 'artwork')
-          text('art-placeholder', 'BACK ARTWORK\nUpload your illustration', 'caption', w * 0.64, h * 0.12, w * 0.32, h * 0.12, { fontFamily: design.styles.fonts.technical, fontSize: 12 * typeScale })
-        } else picture('art', block.panel === 'front' ? 'frontArt' : 'backArt', 'FRONT ARTWORK\nUpload your illustration')
+        picture('art', block.panel === 'front' ? 'frontArt' : 'backArt', block.name)
         break
       case 'platform':
         shape('surface', 'brand', 0, 0, w * 0.4, h, `${colors.brand}00`, false)
@@ -79,7 +72,7 @@ export function composeDesign(project: Project): Project {
         break
       case 'title':
         if (design.images.gameLogo) picture('logo', 'gameLogo', 'Game logo', 0, 0, w, h, true)
-        else text('title', design.shared.title, 'title', 0, 0, w, h, { fill: design.images.frontArt ? colors.onArtwork : colors.onTechnical })
+        else text('title', design.shared.title, 'title', 0, 0, w, h)
         break
       case 'intro':
         text('headline', design.shared.headline, 'headline', 0, 0, w, h * 0.34)

@@ -2,6 +2,7 @@ import steamLogoWhite from './logos/steam-logo-white.svg?raw'
 import steamLogoBlack from './logos/steam-logo-black.svg?raw'
 import steamSymbolWhite from './logos/steam-symbol-white.svg?raw'
 import steamSymbolBlack from './logos/steam-symbol-black.svg?raw'
+import defaultImageSvg from './default-image.svg?raw'
 import type { Asset } from '../domain/types'
 
 type SharedLogo = {
@@ -26,12 +27,17 @@ export const sharedLogos: SharedLogo[] = [
   logo('logo', 'white', steamLogoWhite), logo('logo', 'black', steamLogoBlack),
   logo('symbol', 'white', steamSymbolWhite), logo('symbol', 'black', steamSymbolBlack),
 ]
-export const builtinAssets: Record<string, Asset> = Object.fromEntries(sharedLogos.map((entry) => [entry.id, entry.asset]))
+export const defaultImageAssetId = 'builtin:default-image:1'
+const defaultImageAsset: Asset = { id: defaultImageAssetId, name: 'Default image.svg', mimeType: 'image/svg+xml',
+  blob: new Blob([defaultImageSvg], { type: 'image/svg+xml' }), width: 1200, height: 960 }
+export const builtinAssets: Record<string, Asset> = { ...Object.fromEntries(sharedLogos.map((entry) => [entry.id, entry.asset])), [defaultImageAssetId]: defaultImageAsset }
 
 export function builtinAsset(id: string): Asset | undefined { return Object.hasOwn(builtinAssets, id) ? builtinAssets[id] : undefined }
 
 // Recognize bundled SVGs to verify their reserved built-in identities.
-export function bundledSvg(svg: string): SharedLogo | undefined { return sharedLogos.find((entry) => entry.svg === svg) }
+export function bundledSvg(svg: string): { id: string; asset: Asset } | undefined {
+  return svg === defaultImageSvg ? { id: defaultImageAssetId, asset: defaultImageAsset } : sharedLogos.find((entry) => entry.svg === svg)
+}
 
 export function steamLogoFor(background: string): string {
   const channels = background.slice(1).match(/.{2}/g)!.map((hex) => {
