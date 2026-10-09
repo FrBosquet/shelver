@@ -21,7 +21,7 @@ describe('Steam requirements table', () => {
       expect(table.cells).toHaveLength(1)
       expect(table.cells[0]).toHaveLength(2)
       expect(table.cells[0][0]).toContain('### REQUISITOS MÍNIMOS (PC)')
-      expect(table.cells[0][0]).toContain('- **SO:** Windows 10 (64 bits)')
+      expect(table.cells[0][0]).toContain('- **SO:** Sistema operativo mínimo')
       expect(table.cells[0][1]).toContain('### REQUISITOS RECOMENDADOS (PC)')
       expect(validProject(project)).toBe(true)
     }

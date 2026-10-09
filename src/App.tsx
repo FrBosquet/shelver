@@ -76,7 +76,7 @@ export function App() {
     if (!project?.composition.design) return
     const next = structuredClone(project.composition.design)
     update(next)
-    store.updateDesign(activeId, next, newAssets, group)
+    store.updateDesign(activeId, next, newAssets, group, !group?.startsWith('color:'))
   }
 
   function changeElements(projectId: string, elements: Element[], asset?: Asset, group?: string) {

@@ -85,13 +85,28 @@ export class IndexedDbWorkspaceRepository implements WorkspaceRepository {
 
   async save(projects: Project[], assets: Asset[], deletedProjectIds: string[] = []): Promise<void> {
     const database = await this.open()
+    const existing = await Promise.all(assets.map((asset) => new Promise<Asset | undefined>((resolve, reject) => {
+      const request = database.transaction('assets', 'readonly').objectStore('assets').get(asset.id)
+      request.onsuccess = () => resolve(request.result as Asset | undefined)
+      request.onerror = () => reject(request.error)
+    })))
+    const newAssets: Asset[] = []
+    for (const [index, asset] of assets.entries()) {
+      const saved = existing[index]
+      if (!saved) { newAssets.push(asset); continue }
+      const [savedBytes, nextBytes] = await Promise.all([saved.blob.arrayBuffer(), asset.blob.arrayBuffer()])
+      const bytes = new Uint8Array(savedBytes), next = new Uint8Array(nextBytes)
+      if (saved.mimeType !== asset.mimeType || saved.width !== asset.width || saved.height !== asset.height || saved.name !== asset.name || bytes.length !== next.length || bytes.some((byte, i) => byte !== next[i])) {
+        throw new DOMException('An image with this ID already exists with different content.', 'ConstraintError')
+      }
+    }
     return new Promise((resolve, reject) => {
       const transaction = database.transaction(['projects', 'assets'], 'readwrite')
       // Request success is not enough: report saved only after the entire transaction commits.
       transaction.oncomplete = () => resolve()
       transaction.onabort = () => reject(transaction.error ?? new Error('Local saving was interrupted.'))
       try {
-        for (const asset of assets) transaction.objectStore('assets').add(asset)
+        for (const asset of newAssets) transaction.objectStore('assets').add(asset)
         for (const project of projects) transaction.objectStore('projects').put(project)
         for (const id of deletedProjectIds) transaction.objectStore('projects').delete(id)
       } catch (error) {

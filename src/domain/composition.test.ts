@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
-import { adaptElement, captureDesignEdits, composeDesign, placementOf, referencedAssetIds } from './composition'
+import { adaptElement, captureDesignEdits, composeDesign, placementOf, referencedAssetIds, remapDesign } from './composition'
 import { createProject, pcTemplate } from './projects'
 import { createSteamProject, workingFormats } from './steamTemplate'
 import type { Asset, ImageElement, Project, RatingElement, TextElement } from './types'
@@ -25,6 +25,45 @@ function artwork(): Asset {
 }
 
 describe('Steam composition', () => {
+  it('preserves layer order across edits, reopening and project duplication', () => {
+    const project = createSteamProject()
+    const elements = [...project.composition.elements]
+    const footer = elements.shift()!
+    elements.push(footer)
+    const reordered = captureDesignEdits(project, elements)
+    expect(composeDesign(JSON.parse(JSON.stringify(reordered))).composition.elements.map((element) => element.id)).toEqual(elements.map((element) => element.id))
+    const edited = captureDesignEdits(reordered, reordered.composition.elements.map((element) => element.id === footer.id ? { ...element, x: 15 } : element))
+    expect(edited.composition.elements.at(-1)?.id).toBe(footer.id)
+    const duplicate = remapDesign(edited.composition.design!, new Map(), new Map())
+    const copied = composeDesign({ ...edited, composition: { ...edited.composition, design: duplicate } })
+    expect(copied.composition.elements.at(-1)?.id).toBe(`${duplicate.instanceId}:technical-surface`)
+    expect(validProject(copied)).toBe(true)
+    copied.composition.design!.layerOrder = ['duplicate', 'duplicate']
+    expect(validProject(copied)).toBe(false)
+  })
+
+  it('keeps hidden layers in their saved position and places new elements above existing layers', () => {
+    const project = createSteamProject()
+    const ordered = captureDesignEdits(project, [...project.composition.elements].reverse())
+    const hidden = ordered.composition.elements[2]
+    ordered.composition.design!.overrides[hidden.id] = { hidden: true }
+    const extra: ImageElement = { id: 'new-layer', name: 'New layer', type: 'image', assetId: 'art', x: 0, y: 0, width: 100, height: 100, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1, visible: true, locked: false }
+    const saved = captureDesignEdits(composeDesign(ordered), [...composeDesign(ordered).composition.elements, extra])
+    expect(saved.composition.elements[2]).toMatchObject({ id: hidden.id, visible: false })
+    expect(saved.composition.elements.at(-1)?.id).toBe(extra.id)
+  })
+
+  it('allows footer selection and preserves its color and dimensions after saving', () => {
+    const project = createSteamProject()
+    const footer = project.composition.elements.find((element) => element.id.endsWith(':technical-surface'))!
+    expect(footer).toMatchObject({ type: 'shape', locked: false })
+    const changed = { ...footer, fill: '#123456', height: footer.height / 2, x: footer.x + 10 }
+    const saved = captureDesignEdits(project, project.composition.elements.map((element) => element.id === footer.id ? changed : element))
+    const reopened = composeDesign(JSON.parse(JSON.stringify(saved)))
+    expect(reopened.composition.elements.find((element) => element.id === footer.id)).toMatchObject(changed)
+    expect(validProject(reopened)).toBe(true)
+  })
+
   it('can hide and restore every default element without losing visibility on recomposition', () => {
     const original = createSteamProject()
     for (const target of original.composition.elements) {
@@ -126,7 +165,7 @@ describe('Steam composition', () => {
     expect(validProject(project)).toBe(true)
     expect(project.composition.design!.blocks.map((b) => b.kind)).toEqual(expect.arrayContaining(['gallery', 'requirements', 'features', 'rating', 'publisher', 'spine']))
     expect(project.composition.elements.filter((el) => el.id.endsWith('-caption')).every((el) => el.styleRef === 'caption')).toBe(true)
-    expect(referencedAssetIds(project)).toEqual(['builtin:default-image:1', 'builtin:steam-logo-white:1', 'builtin:steam-logo-black:1'])
+    expect(referencedAssetIds(project)).toEqual(['builtin:default-image:1', 'builtin:steam-logo-white:1'])
     expect(composeDesign(project)).toEqual(project)
   })
 
@@ -275,7 +314,7 @@ describe('Steam composition', () => {
     expect(recovered.composition.design!.instanceId).not.toBe(design.instanceId)
     const newAssetId = recovered.composition.design!.images.gameLogo.assetId
     expect(newAssetId).not.toBe(asset.id)
-    expect(recovered.composition.elements.flatMap((el) => el.type === 'image' && el.assetId !== 'builtin:default-image:1' ? [el.assetId] : [])).toEqual(['builtin:steam-logo-white:1', 'builtin:steam-logo-black:1', newAssetId])
+    expect(recovered.composition.elements.flatMap((el) => el.type === 'image' && el.assetId !== 'builtin:default-image:1' ? [el.assetId] : [])).toEqual(['builtin:steam-logo-white:1', 'builtin:steam-logo-white:1', newAssetId])
     expect(text(recovered, 'shot-1-caption').fill).toBe('#aa0000')
     expect(composeDesign(recovered)).toEqual(recovered)
   })
@@ -302,4 +341,17 @@ describe('Steam composition', () => {
     expect(adapted.scaleX).toBe(adapted.scaleY)
     expect(adapted.rotation).toBe(45)
   })
+})
+
+it('keeps image tint linked to a project color through edits and reload', () => {
+  let project = createSteamProject()
+  const image = project.composition.elements.find((element): element is ImageElement => element.type === 'image')!
+  project = captureDesignEdits(project, project.composition.elements.map((element) => element.id === image.id ? { ...image, filters: { tint: '#123456', tintRole: 'brand' as const } } : element))
+  project.composition.design!.styles.colors.brand = '#abcdef'
+  project = composeDesign(JSON.parse(JSON.stringify(project)))
+  expect(project.composition.elements.find((element) => element.id === image.id)).toMatchObject({ filters: { tint: '#abcdef', tintRole: 'brand' } })
+  expect(validProject(project)).toBe(true)
+  project = captureDesignEdits(project, project.composition.elements.map((element) => element.id === image.id ? { ...element, filters: { tint: '#112233' } } as ImageElement : element))
+  project.composition.design!.styles.colors.brand = '#ffffff'
+  expect(composeDesign(project).composition.elements.find((element) => element.id === image.id)).toMatchObject({ filters: { tint: '#112233' } })
 })

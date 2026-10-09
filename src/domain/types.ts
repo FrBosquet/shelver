@@ -45,7 +45,7 @@ export type TextElement = BaseElement & {
     lineHeight?: number
 }
 export type ImageShadow = { color: string; blur: number; offsetX: number; offsetY: number; opacity: number }
-export type ImageFilters = { blur?: number; backdropBlur?: number; shadow?: ImageShadow; brightness?: number; contrast?: number; saturation?: number; grayscale?: boolean; invert?: boolean; tint?: string }
+export type ImageFilters = { blur?: number; backdropBlur?: number; shadow?: ImageShadow; brightness?: number; contrast?: number; saturation?: number; grayscale?: boolean; invert?: boolean; tint?: string; tintRole?: ColorRole }
 export type ImageElement = BaseElement & { type: 'image'; assetId: string; filters?: ImageFilters; fit?: 'cover' | 'contain' | 'repeat'; imageScale?: number; offsetX?: number; offsetY?: number; focalX?: number; focalY?: number }
 export type ShapeElement = BaseElement & { type: 'shape'; fill: string; gradientTo?: string }
 export type TableElement = BaseElement & { type: 'table'; verticalAlign?: 'top' | 'middle' | 'bottom'; fontRole?: FontRole; textAlign?: 'left' | 'center' | 'right'; fontFamily?: string; icons?: (TableIconId | null)[][]; padding?: number; contentFormat?: 'markdown'; cells: string[][]; fill: string; textColor: string; fontSize: number }
@@ -116,5 +116,6 @@ export type CoverDesign = {
   blocks: DesignBlock[]
   images: Record<string, { assetId: string; fit: 'cover' | 'contain'; focalX: number; focalY: number }>
   overrides: Record<string, ElementOverride>
+  layerOrder?: string[]
   extras: { element: Element; placement: Placement }[]
 }

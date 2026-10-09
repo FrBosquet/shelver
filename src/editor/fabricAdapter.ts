@@ -7,6 +7,7 @@ import type { FabricObject } from 'fabric'
 import type { Asset, Element, ImageElement, ImageFilters } from '../domain/types'
 import { attachBackdropBlur } from './backdropBlur'
 import { builtinAsset } from '../assets/logoLibrary'
+import { selectionStyle } from './selectionStyle'
 
 export function imageFilters(settings: ImageFilters = {}) {
   return [
@@ -73,14 +74,14 @@ export async function renderElement(element: Element, assets: Record<string, Ass
       const frame = new Rect({ originX: 'left', originY: 'top', left: c * width, top: r * height, width, height, fill: element.fill, stroke: element.textColor, strokeWidth: 1 })
       cells.push(frame)
       const icon = tableIcons.find((entry) => entry.id === element.icons?.[r]?.[c])
-      const iconSize = Math.max(1, Math.min(24, width - padding * 2))
+      const iconSize = Math.max(1, Math.min(element.fontSize * 1.5, width - padding * 2))
       let iconOffset = 0
       let artwork: FabricObject | undefined
       if (icon) {
         const svg = await loadSVGFromString(tableIconSvg(icon, element.textColor), undefined, { signal })
         artwork = util.groupSVGElements(svg.objects.filter((item): item is FabricObject => item !== null), svg.options)
         artwork.set({ originX: 'left', originY: 'top', left: c * width + (width - iconSize) / 2, top: r * height + padding, scaleX: iconSize / 24, scaleY: iconSize / 24 })
-        iconOffset = iconSize + 8
+        iconOffset = iconSize + element.fontSize * 0.5
         cells.push(artwork)
       }
       const markdown = element.contentFormat === 'markdown' ? tableMarkdown(cell) : { text: cell, styles: {} }
@@ -171,8 +172,6 @@ export async function renderElement(element: Element, assets: Record<string, Ass
     scaleX: element.scaleX, scaleY: element.scaleY, angle: element.rotation,
     opacity: element.opacity, visible: element.visible,
     ...(element.type === 'table' ? { lockScalingFlip: true } : {}),
-    selectable: !element.locked, evented: !element.locked,
-    cornerColor: '#c2e3b5', borderColor: '#c2e3b5', cornerStyle: 'circle', transparentCorners: false,
   })
   if (element.type === 'image' && element.fit && object instanceof FabricImage) {
     const source = object.getElement()
@@ -189,12 +188,16 @@ export async function renderElement(element: Element, assets: Record<string, Ass
     if (element.filters?.backdropBlur) attachBackdropBlur(object, element.filters.backdropBlur)
   }
   if (element.blockId && !editableReplacement && object instanceof Textbox) object.set({ editable: false })
+  // Fitted images replace the FabricImage with a Rect; serialization omits UI options.
+  object.set({ ...selectionStyle, selectable: !element.locked, evented: !element.locked })
   return object
 }
 
 export function readElement(object: FabricObject, original: Element): Element {
+  // Active selections store child positions relative to the selection's center.
+  const position = object.getXY()
   const base = {
-    ...original, x: object.left, y: object.top, width: object.width, height: object.height,
+    ...original, x: position.x, y: position.y, width: object.width, height: object.height,
     scaleX: object.scaleX, scaleY: object.scaleY, rotation: object.angle,
     opacity: object.opacity, visible: object.visible,
   }

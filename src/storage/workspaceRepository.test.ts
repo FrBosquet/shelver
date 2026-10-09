@@ -82,8 +82,8 @@ describe('IndexedDB workspace', () => {
     await storage.save([project], [asset])
     const changed = { ...project, name: 'Must not commit' }
     const another = createProject(pcTemplate)
-    // add(), rather than put(), makes existing assets immutable and aborts this transaction.
-    await expect(storage.save([changed, another], [asset])).rejects.toMatchObject({ name: 'ConstraintError' })
+    // A different image cannot overwrite immutable artwork with the same ID.
+    await expect(storage.save([changed, another], [{ ...asset, blob: new Blob(["different bytes"]) }])).rejects.toMatchObject({ name: 'ConstraintError' })
     const recovered = await storage.load()
     expect(recovered.projects).toEqual([project])
     expect(await recovered.assets.artwork.blob.text()).toBe('original image bytes')
@@ -112,3 +112,14 @@ describe('IndexedDB workspace', () => {
     await expect(unavailable.load()).rejects.toThrow('unavailable in this browser')
   })
 })
+
+ it('safely retries a save containing artwork that was already committed', async () => {
+    const storage = repository()
+    const asset = artwork()
+    const project = createProject(pcTemplate)
+    await storage.save([project], [asset])
+    await storage.save([{ ...project, name: 'Updated' }], [{ ...asset }])
+    const recovered = await storage.load()
+    expect(recovered.projects[0].name).toBe('Updated')
+    expect(await recovered.assets.artwork.blob.text()).toBe('original image bytes')
+  })

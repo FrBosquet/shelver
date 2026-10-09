@@ -79,13 +79,16 @@ export class WorkspaceStore {
 
   private queue(project: Project, assets: Asset[] = []): void {
     this.pendingProjects.set(project.id, project)
-    for (const asset of assets) if (!builtinAsset(asset.id)) this.pendingAssets.set(asset.id, asset)
+    // Artwork is immutable and shared by ID. Reusing it must not enqueue
+    // another add(), including while its first save is still in flight.
+    const newAssets = assets.filter((asset) => !builtinAsset(asset.id) && !this.snapshot.assets[asset.id])
+    for (const asset of newAssets) this.pendingAssets.set(asset.id, asset)
     const exists = this.snapshot.projects.some((current) => current.id === project.id)
     const projects = exists
       ? this.snapshot.projects.map((current) => current.id === project.id ? project : current)
       : [project, ...this.snapshot.projects]
     this.publish({
-      projects, assets: assets.length ? { ...this.snapshot.assets, ...Object.fromEntries(assets.map((asset) => [asset.id, asset])) } : this.snapshot.assets,
+      projects, assets: newAssets.length ? { ...this.snapshot.assets, ...Object.fromEntries(newAssets.map((asset) => [asset.id, asset])) } : this.snapshot.assets,
       history: { ...this.snapshot.history, [project.id]: this.historyState(project.id) },
       status: this.saving ? 'saving' : 'pending', error: null,
     })
@@ -289,4 +292,12 @@ export class WorkspaceStore {
   }
 
   retry = (): Promise<void> => this.snapshot.loaded ? this.flush() : this.load()
+
+  async refreshRepository(repository: WorkspaceRepository): Promise<void> {
+    // Preserve the open project, history and pending writes during development
+    // updates, but let retries use the latest persistence implementation.
+    if (this.saving) await this.saving
+    this.repository = repository
+    await this.retry()
+  }
 }

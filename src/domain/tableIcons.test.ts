@@ -10,7 +10,7 @@ it('builds Steam features as one four-column table and persists cell icons', asy
   expect(features).toHaveLength(1)
   const table = features[0]
   if (table.type !== 'table') throw new Error('Expected features table')
-  expect(table.cells).toEqual([['horas', '%', '01/26', 'PC']])
+  expect(table.cells).toEqual([['horas', '%', 'MM/AA', 'PC']])
   expect(table.icons).toEqual([['clock', 'star', 'calendar', 'controller']])
   expect(table.verticalAlign).toBe('middle')
   expect(table.height).toBeCloseTo(project.composition.format.height * 0.07)

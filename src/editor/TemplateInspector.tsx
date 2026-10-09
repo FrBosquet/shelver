@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { ColorPicker } from './ColorPicker'
 import { colorLabels } from '../domain/colorLabels'
 import { AssetPicker } from './AssetPicker'
 import type { Asset, ColorRole, CoverDesign, DesignBlock, FontRole, Format, Project, TextRole } from '../domain/types'
@@ -32,11 +31,10 @@ export function TemplateInspector({ onUploadAssets, onElementControlsHost, selec
   const setTab = (value: 'blocks' | 'styles' | 'format') => setTabState({ value, request: selectionRequest })
   const [role, setRole] = useState<TextRole>('caption')
   const [picker, setPicker] = useState<{ key: string; label: string } | null>(null)
-  const [colorDrafts, setColorDrafts] = useState<Partial<Record<ColorRole, string>>>({})
   const selectedElement = project.composition.elements.find((element) => element.id === selectedBlockId)
   const selectedTemplateBlock = design.blocks.find((b) => b.id === selectedBlockId)
   const block = selectedTemplateBlock ?? design.blocks[0]
-  const isEditing = Boolean(selectedElement || selectedTemplateBlock)
+  const isEditing = Boolean(selectedElement || selectedTemplateBlock || selectedBlockId === '__multiple__')
   const visibilityToggle = (element: CoverDesign['extras'][number]['element']) => <label className="checkbox-field element-visibility"><input type="checkbox" role="switch" aria-label={`Show ${element.name}`} checked={element.visible} onChange={(event) => onChange((next) => {
     const extra = next.extras.find((entry) => entry.element.id === element.id)
     if (extra) extra.element.visible = event.target.checked
@@ -86,8 +84,8 @@ export function TemplateInspector({ onUploadAssets, onElementControlsHost, selec
     <fieldset>
     {tab === 'blocks' && <section aria-label="Edit template blocks">
       {!isEditing ? <div className="block-list" aria-label="Cover blocks">
-        <p className="small muted">Hide any element when your artwork already includes it. Hidden elements stay here so you can show them again.</p>
-        <ul className="block-element-list">{project.composition.elements.map((element) => <li key={element.id}><button className="block-list-entry" onClick={() => onSelectBlock(element.id)}><span>{element.name}<small>{element.type}{!element.visible ? ' · Hidden' : ''}</small></span><span aria-hidden="true">→</span></button>{visibilityToggle(element)}</li>)}</ul>
+        <p className="small muted">Layers are listed from front to back. Select an element to change its layer order. Hidden elements stay here so you can show them again.</p>
+        <ul className="block-element-list">{[...project.composition.elements].reverse().map((element) => <li key={element.id}><button className="block-list-entry" onClick={() => onSelectBlock(element.id)}><span>{element.name}<small>{element.type.toUpperCase()}{!element.visible ? ' · Hidden' : ''}</small></span><span aria-hidden="true">→</span></button>{visibilityToggle(element)}</li>)}</ul>
       </div> : <>
       <button className="back-button" onClick={() => onSelectBlock('')}>← All blocks</button>
       {selectedElement && visibilityToggle(selectedElement)}
@@ -114,11 +112,10 @@ export function TemplateInspector({ onUploadAssets, onElementControlsHost, selec
     </section>}
     {tab === 'styles' && <section aria-label="Shared styles">
       <p className="small muted">Changes apply to all template elements referencing the style.</p>
-      <div className="color-grid">{(Object.keys(colorLabels) as ColorRole[]).map((key) => <div className="field color-field" key={key}>{colorLabels[key]}<ColorPicker label={colorLabels[key]} value={design.styles.colors[key]} onChange={(color) => { setColorDrafts((current) => ({ ...current, [key]: undefined })); onChange((next) => { next.styles.colors[key] = color }, [], `color:${key}`) }} /><input aria-label={`${colorLabels[key]} hex`} value={colorDrafts[key] ?? design.styles.colors[key]} maxLength={7} onChange={(e) => {
-        const color = e.target.value
-        if (/^#[0-9a-f]{6}$/i.test(color)) { setColorDrafts((current) => ({ ...current, [key]: undefined })); onChange((next) => { next.styles.colors[key] = color }, [], `color:${key}`) }
-        else setColorDrafts((current) => ({ ...current, [key]: color }))
-      }} onBlur={() => setColorDrafts((current) => ({ ...current, [key]: undefined }))} /></div>)}</div>
+      <div className="color-grid">{(Object.keys(colorLabels) as ColorRole[]).map((key) => <label className="field color-field" key={key}>
+        <span className="style-color-swatch" style={{ backgroundColor: design.styles.colors[key] }}><input type="color" aria-label={colorLabels[key]} value={design.styles.colors[key]} onChange={(event) => onChange((next) => { next.styles.colors[key] = event.target.value }, [], `color:${key}`)} /></span>
+        <span>{colorLabels[key]}</span>
+      </label>)}</div>
       {(Object.keys(design.styles.fonts) as FontRole[]).map((key) => <label className="field" key={key}>{key} font<select aria-label={`${key} font`} value={design.styles.fonts[key]} onChange={(e) => onChange((next) => { next.styles.fonts[key] = e.target.value })}>{fontChoices.map((font) => <option key={font}>{font}</option>)}</select></label>)}
       <h3>Text styles</h3><label className="field">Shared text style<select aria-label="Shared text style" value={role} onChange={(e) => setRole(e.target.value as TextRole)}>{(Object.keys(design.styles.text) as TextRole[]).map((key) => <option key={key}>{key}</option>)}</select></label>
       <div className="form-row"><label className="field">Font role<select aria-label="Text style font role" value={design.styles.text[role].font} onChange={(e) => onChange((next) => { next.styles.text[role].font = e.target.value as FontRole })}>{(Object.keys(design.styles.fonts) as FontRole[]).map((key) => <option key={key}>{key}</option>)}</select></label>

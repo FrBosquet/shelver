@@ -7,6 +7,12 @@ export function useWorkspace() {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
 
   useEffect(() => {
+    if (!import.meta.env.DEV) return
+    Object.setPrototypeOf(store, WorkspaceStore.prototype)
+    void store.refreshRepository(new IndexedDbWorkspaceRepository())
+  }, [store])
+
+  useEffect(() => {
     void store.load()
     const beforeUnload = (event: BeforeUnloadEvent) => {
       if (!store.hasUnsavedChanges()) return

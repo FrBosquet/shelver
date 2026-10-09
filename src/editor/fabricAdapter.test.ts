@@ -1,8 +1,9 @@
-import { Canvas2dFilterBackend, Group, Path, Pattern, Rect } from 'fabric'
-import { describe, expect, it } from 'vitest'
+import { ActiveSelection, Canvas2dFilterBackend, FabricImage, Group, Path, Pattern, Rect } from 'fabric'
+import { describe, expect, it, vi } from 'vitest'
 import type { ShapeElement } from '../domain/types'
 import { qrMatrix } from '../domain/qr'
 import { renderElement, imageFilters, readElement, attachImageFit } from './fabricAdapter'
+import { selectionStyle } from './selectionStyle'
 
 const shape: ShapeElement = {
   id: 'shape', name: 'Shape', type: 'shape', fill: '#ffffff',
@@ -11,6 +12,49 @@ const shape: ShapeElement = {
 }
 
 describe('template canvas interaction', () => {
+  it.each(['cover', 'contain', 'repeat'] as const)('preserves the shared gizmo style on %s images', async (fit) => {
+    const source = { width: 100, height: 100, src: 'fixture.png' } as HTMLImageElement
+    const image = new FabricImage(source)
+    const load = vi.spyOn(FabricImage, 'fromURL').mockResolvedValue(image)
+    const dispose = vi.spyOn(image, 'dispose').mockImplementation(() => {})
+    try {
+      const asset = { id: 'fixture', name: 'Fixture', mimeType: 'image/png', width: 100, height: 100, blob: new Blob() }
+      const object = await renderElement({ ...shape, type: 'image', assetId: asset.id, fit }, { [asset.id]: asset }, new AbortController().signal)
+      expect(object).toBeInstanceOf(Rect)
+      expect(object).toMatchObject(selectionStyle)
+      expect(object.selectable).toBe(true)
+    } finally {
+      load.mockRestore()
+      dispose.mockRestore()
+    }
+  })
+
+  it('saves canvas positions while elements belong to a moved multi-selection', async () => {
+    const originals = [
+      { ...shape, x: 40, y: 60, rotation: 15, scaleX: 1.2 },
+      { ...shape, id: 'second', blockId: 'back-rating', x: 230, y: 180 },
+    ]
+    const objects = await Promise.all(originals.map((element) => renderElement(element, {}, new AbortController().signal)))
+    const selection = new ActiveSelection(objects)
+    objects.forEach((object, index) => {
+      expect(readElement(object, originals[index]).x).toBeCloseTo(originals[index].x)
+      expect(readElement(object, originals[index]).y).toBeCloseTo(originals[index].y)
+    })
+    selection.set({ left: selection.left + 75, top: selection.top - 25 })
+    objects.forEach((object, index) => {
+      const saved = readElement(object, originals[index])
+      expect(saved.x).toBeCloseTo(originals[index].x + 75)
+      expect(saved.y).toBeCloseTo(originals[index].y - 25)
+      expect(saved.rotation).toBe(originals[index].rotation)
+      expect(saved.scaleX).toBe(originals[index].scaleX)
+    })
+    selection.remove(...objects)
+    objects.forEach((object, index) => {
+      expect(readElement(object, originals[index]).x).toBeCloseTo(originals[index].x + 75)
+      expect(readElement(object, originals[index]).y).toBeCloseTo(originals[index].y - 25)
+    })
+  })
+
   it('allows moving, resizing and rotating template elements', async () => {
     const object = await renderElement({ ...shape, blockId: 'back-rating' }, {}, new AbortController().signal)
     expect(object.selectable).toBe(true)

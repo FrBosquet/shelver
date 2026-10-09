@@ -40,7 +40,7 @@ export function composeDesign(project: Project): Project {
   // A footer surface is independent of the editable content blocks inside it.
   const back = format.panels.find((p) => p.id === 'back')!
   result.push({ id: `${design.instanceId}:technical-surface`, name: 'Technical footer background', type: 'shape', fill: colors.technical,
-    x: back.x, y: format.height * 0.635, width: back.width, height: format.height * 0.365, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1, visible: true, locked: true, styleRef: 'color.technical' })
+    x: back.x, y: format.height * 0.635, width: back.width, height: format.height * 0.365, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1, visible: true, locked: false, styleRef: 'color.technical' })
   for (const block of design.blocks) {
     if (block.hidden) continue
     const panel = format.panels.find((p) => p.id === block.panel)!
@@ -55,7 +55,14 @@ export function composeDesign(project: Project): Project {
     }
     const text = (key: string, value: string, role: TextRole, dx = 0, dy = 0, dw = w, dh = h, extra: Partial<Extract<Element, { type: 'text' }>> = {}) => {
       const style = design.styles.text[role]
-      result.push({ ...base(key, `${block.name} · ${key}`, dx, dy, dw, dh), type: 'text', text: value,
+      const labels: Partial<Record<DesignBlock['kind'], Record<string, string>>> = {
+        title: { title: 'Title' },
+        intro: { headline: 'Headline', synopsis: 'Synopsis' },
+        review: { attribution: 'Review quote', quote: 'Review source' },
+        publisher: { publisher: block.panel === 'back' ? 'Back publisher' : 'Publisher', legal: 'Legal' },
+        spine: { publisher: 'Spine publisher', title: 'Spine title' },
+      }
+      result.push({ ...base(key, labels[block.kind]?.[key] ?? `${block.name} · ${key}`, dx, dy, dw, dh), type: 'text', text: value,
         fontRole: style.font, fontFamily: design.styles.fonts[style.font], fontSize: style.size * typeScale, fill: colors[style.color], fontWeight: style.weight, textAlign: style.align, lineHeight: 1.15, styleRef: role, ...extra })
     }
     const picture = (key: string, assetKey: string, label: string, dx = 0, dy = 0, dw = w, dh = h, contain = false, defaultAssetId?: string) => {
@@ -83,8 +90,8 @@ export function composeDesign(project: Project): Project {
         const gap = w * 0.025, cell = (w - gap * (columns - 1)) / columns, rowHeight = h / rows
         block.items.forEach((item, i) => {
           const left = (i % columns) * (cell + gap), top = Math.floor(i / columns) * rowHeight
-          picture(`${item.id}-image`, item.id, `SCREENSHOT ${i + 1}`, left, top, cell, rowHeight * 0.62)
-          text(`${item.id}-caption`, item.title, 'caption', left, top + rowHeight * 0.68, cell, rowHeight * 0.32)
+          picture(`${item.id}-image`, item.id, `Screenshot ${i + 1}`, left, top, cell, rowHeight * 0.62)
+          text(`${item.id}-caption`, item.title, 'caption', left, top + rowHeight * 0.68, cell, rowHeight * 0.32, { name: `Screenshot ${i + 1} caption` })
         }); break
       }
       case 'review':
@@ -172,9 +179,19 @@ export function composeDesign(project: Project): Project {
       ...(override.text !== undefined ? { text: override.text } : {}), ...(override.fontFamily ? { fontFamily: override.fontFamily } : {}),
       ...(override.fontSize ? { fontSize: override.fontSize * (override.placement ? Math.min(format.height / override.placement.referenceHeight, format.panels.find((p) => p.id === override.placement!.panel)!.width / override.placement.referenceWidth) : 1) } : {}),
       ...(override.fill ? { fill: override.fill } : {}) }
+    if (resolved.type === 'shape' && override.fill) resolved = { ...resolved, fill: override.fill }
     return { ...resolved, visible: !override.hidden }
   })
   elements.push(...design.extras.map(({ element, placement }) => adaptElement(element, placement, format)))
+  for (const element of elements) {
+    if (element.type === 'image' && element.filters?.tint && element.filters.tintRole) {
+      element.filters = { ...element.filters, tint: colors[element.filters.tintRole] }
+    }
+  }
+  if (design.layerOrder) {
+    const order = new Map(design.layerOrder.map((id, index) => [id, index]))
+    elements.sort((a, b) => (order.get(a.id) ?? order.size) - (order.get(b.id) ?? order.size))
+  }
   return { ...project, composition: { ...project.composition, background: colors.artwork, elements: elements.map((element) => (element.type === 'text' || element.type === 'table') && element.fontRole ? { ...element, fontFamily: design.styles.fonts[element.fontRole] } : element), design } }
 }
 
@@ -182,6 +199,16 @@ export function captureDesignEdits(project: Project, elements: Element[]): Proje
   if (!project.composition.design) return { ...project, composition: { ...project.composition, elements } }
   const design = structuredClone(project.composition.design), { format } = project.composition
   const incoming = new Map(elements.map((el) => [el.id, el]))
+  const previousOrder = project.composition.elements.filter((element) => incoming.has(element.id)).map((element) => element.id)
+  const existingIds = new Set(previousOrder)
+  const nextOrder = elements.filter((element) => existingIds.has(element.id)).map((element) => element.id)
+  if (design.layerOrder || previousOrder.some((id, index) => id !== nextOrder[index])) {
+    const savedOrder = design.layerOrder ?? project.composition.elements.map((element) => element.id)
+    const reordered = elements.map((element) => element.id)
+    let index = 0
+    design.layerOrder = savedOrder.map((id) => incoming.has(id) ? reordered[index++] : id)
+    design.layerOrder.push(...reordered.slice(index))
+  }
   for (const previous of project.composition.elements.filter((el) => !design.extras.some((e) => e.element.id === el.id))) {
     const next = incoming.get(previous.id)
     const override: ElementOverride = design.overrides[previous.id] ?? {}
@@ -195,10 +222,11 @@ export function captureDesignEdits(project: Project, elements: Element[]): Proje
       design.shared.rating = next.rating
       delete design.images.ratingLogo
     }
-    if (['x', 'y', 'width', 'scaleX', 'scaleY', 'rotation'].some((key) => Math.abs(previous[key as 'x'] - next[key as 'x']) > 0.000001)) {
+    if (['x', 'y', 'width', 'height', 'scaleX', 'scaleY', 'rotation'].some((key) => Math.abs(previous[key as 'x'] - next[key as 'x']) > 0.000001)) {
       const block = design.blocks.find((b) => b.id === previous.blockId)
       override.placement = placementOf(next, format, block?.panel)
     }
+    if (next.type === 'shape' && previous.type === 'shape' && next.fill !== previous.fill) override.fill = next.fill
     if (next.type === 'text' && previous.type === 'text') {
       if (next.text !== previous.text) override.text = next.text
       if (next.fill !== previous.fill) override.fill = next.fill
@@ -222,6 +250,7 @@ export function referencedAssetIds(project: Project): string[] {
 export function remapDesign(design: CoverDesign, assets: Map<string, string>, elementIds: Map<string, string>): CoverDesign {
   const copy = structuredClone(design), oldId = copy.instanceId
   copy.instanceId = crypto.randomUUID()
+  copy.layerOrder = copy.layerOrder?.map((id) => id.startsWith(`${oldId}:`) ? id.replace(`${oldId}:`, `${copy.instanceId}:`) : elementIds.get(id) ?? id)
   for (const image of Object.values(copy.images)) image.assetId = assets.get(image.assetId) ?? image.assetId
   copy.overrides = Object.fromEntries(Object.entries(copy.overrides).map(([id, override]) => [id.replace(`${oldId}:`, `${copy.instanceId}:`), override]))
   for (const [id, override] of Object.entries(copy.overrides)) {

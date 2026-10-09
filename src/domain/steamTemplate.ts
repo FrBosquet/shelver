@@ -14,7 +14,7 @@ export const workingFormats: Format[] = [
 ]
 
 export const steamStyles: StyleSheet = {
-  colors: { brand: '#102637', spine: '#ffdb35', onSpine: '#101719', technical: '#091820', onTechnical: '#f5f4e9', artwork: '#e6c56d', onArtwork: '#172129', rating: '#91b52b' },
+  colors: { brand: '#102637', spine: '#102637', onSpine: '#ffffff', technical: '#091820', onTechnical: '#f5f4e9', artwork: '#e6c56d', onArtwork: '#172129', rating: '#91b52b' },
   fonts: { heading: 'Georgia', body: 'Georgia', technical: 'Arial' },
   text: {
     title: { font: 'heading', color: 'onArtwork', size: 54, weight: 'bold', align: 'left' },
@@ -37,10 +37,10 @@ export function createSteamProject(format: Format = workingFormats[0]): Project 
     version: 1, instanceId: crypto.randomUUID(), templateId: 'steam-editorial-v1', templateName: 'Steam · Editorial',
     styles: structuredClone(steamStyles),
     shared: {
-      title: 'CHANTS OF\nSENNAAR', publisher: 'YOUR PUBLISHER', rating: '7',
-      headline: 'OBSERVA. ESCUCHA.\nCOMPRENDE.\nHAZ QUE HABLEN.',
-      synopsis: 'Una aventura de puzles y exploración ambientada en un mundo inspirado en el mito de la Torre de Babel.\n\nSustituye este texto por la historia de tu juego.',
-      quote: '“UNA AVENTURA BRILLANTE Y ORIGINAL”', attribution: '— IGN',
+      title: 'TÍTULO DEL\nJUEGO', publisher: 'TU EDITORA', rating: '7',
+      headline: 'TU JUEGO.\nTU HISTORIA.\nTU AVENTURA.',
+      synopsis: 'Presenta aquí la historia y el mundo de tu juego. Describe su propuesta y lo que lo hace especial.\n\nAñade los detalles que quieras destacar para tus jugadores.',
+      quote: '“AÑADE AQUÍ UNA RESEÑA DE TU JUEGO”', attribution: '— MEDIO O AUTOR',
       legal: '© Your studio. All rights reserved.\nReplace with your legal information.',
     },
     blocks: [
@@ -62,21 +62,21 @@ export function createSteamProject(format: Format = workingFormats[0]): Project 
     ], images: {}, overrides: {}, extras: [],
   }
   design.blocks.find((b) => b.id === 'gallery')!.items = [
-    { id: 'shot-1', title: 'EXPLORA UN MUNDO\nFASCINANTE Y ENIGMÁTICO', text: '', detail: '' },
-    { id: 'shot-2', title: 'DESCIFRA IDIOMAS\nA TRAVÉS DE LA OBSERVACIÓN', text: '', detail: '' },
-    { id: 'shot-3', title: 'CONECTA CULTURAS\nY DEVUELVE LA ARMONÍA', text: '', detail: '' },
+    { id: 'shot-1', title: 'DESTACA UNA\nCARACTERÍSTICA DEL JUEGO', text: '', detail: '' },
+    { id: 'shot-2', title: 'PRESENTA UNA\nMECÁNICA DEL JUEGO', text: '', detail: '' },
+    { id: 'shot-3', title: 'MUESTRA UN\nMOMENTO DEL JUEGO', text: '', detail: '' },
   ]
   design.blocks.find((b) => b.id === 'requirements')!.items = [
-    ['SO', 'Windows 10 (64 bits)', 'Windows 10/11 (64 bits)'],
-    ['Procesador', 'Intel Core i3-2100 / AMD FX-6300', 'Intel Core i5-7600 / AMD Ryzen 5 2600'],
-    ['Memoria', '4 GB de RAM', '8 GB de RAM'],
-    ['Gráficos', 'NVIDIA GeForce GTX 660 / AMD Radeon HD 7870', 'NVIDIA GeForce GTX 1060 / AMD Radeon RX 580'],
-    ['Almacenamiento', '4 GB de espacio disponible', '4 GB de espacio disponible'],
+    ['SO', 'Sistema operativo mínimo', 'Sistema operativo recomendado'],
+    ['Procesador', 'Procesador mínimo', 'Procesador recomendado'],
+    ['Memoria', 'RAM mínima', 'RAM recomendada'],
+    ['Gráficos', 'Tarjeta gráfica mínima', 'Tarjeta gráfica recomendada'],
+    ['Almacenamiento', 'Espacio necesario', 'Espacio necesario'],
   ].map(([title, text, detail], index) => ({ id: `spec-${index}`, title, text, detail }))
   design.blocks.find((b) => b.id === 'features')!.items = [
     { id: 'clock', title: 'horas', text: '', detail: '' },
     { id: 'star', title: '%', text: '', detail: '' },
-    { id: 'calendar', title: '01/26', text: '', detail: '' },
+    { id: 'calendar', title: 'MM/AA', text: '', detail: '' },
     { id: 'controller', title: 'PC', text: '', detail: '' },
   ]
   const timestamp = new Date().toISOString()

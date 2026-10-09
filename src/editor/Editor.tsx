@@ -4,9 +4,10 @@ import { TableIconPicker } from './TableIconPicker'
 import { qrMatrix } from '../domain/qr'
 import { tableIcons } from '../domain/tableIcons'
 import { switchElementType } from '../domain/elementTypes'
-import { useEffect, useEffectEvent, useRef, useState } from 'react'
+import { createElement, useEffect, useEffectEvent, useRef, useState } from 'react'
+import { ArrowDown, ArrowUp, BringToFront, SendToBack, Copy, ImagePlus, Crop, RotateCcw, RotateCw, RotateCcwSquare, Undo2 } from 'lucide'
 import { createPortal } from 'react-dom'
-import { Canvas, FabricImage, Textbox } from 'fabric'
+import { ActiveSelection, Canvas, FabricImage, Textbox } from 'fabric'
 import type { FabricObject } from 'fabric'
 import { createText } from '../domain/projects'
 import { composeDesign } from '../domain/composition'
@@ -17,6 +18,9 @@ import { ImageCropModal } from './ImageCropModal'
 import { sharedLogos } from '../assets/logoLibrary'
 import { printCover } from './printCover'
 import { caseFormats } from '../domain/caseFormats'
+import { selectionStyle } from './selectionStyle'
+import { selectionBounds } from './selectionBounds'
+import { updateImageFilters } from './imageFilters'
 
 type Props = {
   onFormat: (format: Project['composition']['format']) => void
@@ -44,6 +48,8 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
   const records = useRef(new Map<FabricObject, Element>())
   const initial = useRef({ project, assets, initialZoom, onZoomChange })
   const applyingSelection = useRef(false)
+  const replacingSelectedElement = useRef(false)
+  const canvasSelectionId = useRef<string | null>(null)
   const blockSelectionHandler = useRef(onSelectBlock)
   blockSelectionHandler.current = onSelectBlock
   const changeHandler = useRef(onChange)
@@ -60,6 +66,10 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
   const [selection, setSelection] = useState<Element | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
   const [hasSelection, setHasSelection] = useState(false)
+  const [selectionCount, setSelectionCount] = useState(0)
+  const [multipleElements, setMultipleElements] = useState<Element[]>([])
+  const outsideSelection = useRef<{ pointerId: number; x: number; y: number } | null>(null)
+  const [selectionRectangle, setSelectionRectangle] = useState<ReturnType<typeof selectionBounds> | null>(null)
   const [zoom, setZoom] = useState(0.6)
   const [exported, setExported] = useState<{ url: string; filename: string } | null>(null)
   const { format } = project.composition
@@ -99,15 +109,33 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
     const instance = new Canvas(node, {
       width: startingFormat.width * initialZoom, height: startingFormat.height * initialZoom,
       backgroundColor: background, preserveObjectStacking: true,
-      selection: false, selectionKey: [],
+      selection: true, selectionKey: 'shiftKey',
+      selectionBorderColor: selectionStyle.borderColor,
+      selectionColor: 'rgba(194, 227, 181, 0.3)',
     })
     instance.setZoom(initialZoom)
     canvas.current = instance
     const updateSelection = () => {
+      if (replacingSelectedElement.current) return
       const active = instance.getActiveObject()
+      if (active instanceof ActiveSelection) {
+        active.set({ ...selectionStyle, hasControls: false, lockScalingX: true, lockScalingY: true, lockRotation: true })
+      }
       const element = active ? elementRecords.get(active) : undefined
-      if (!applyingSelection.current) blockSelectionHandler.current(element?.id ?? '')
-      setHasSelection(Boolean(active) && !element?.blockId)
+      if (!applyingSelection.current) {
+        const id = instance.getActiveObjects().length > 1 ? '__multiple__' : element?.id ?? ''
+        canvasSelectionId.current = id
+        blockSelectionHandler.current(id)
+      }
+      setSelectionCount(instance.getActiveObjects().length)
+      setMultipleElements(instance.getActiveObjects().flatMap((object) => {
+        const original = elementRecords.get(object)
+        return original ? [readElement(object, original)] : []
+      }))
+      setHasSelection(instance.getActiveObjects().some((object) => {
+        const selected = elementRecords.get(object)
+        return selected && !selected.blockId
+      }))
       setSelectedText(active instanceof Textbox ? active.text : null)
       setSelection(element ?? null)
     }
@@ -144,9 +172,56 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
     }
   }, [])
 
+  const paletteKey = JSON.stringify(project.composition.design?.styles.colors)
+  const appliedPalette = useRef(paletteKey)
+  useEffect(() => {
+    const instance = canvas.current
+    if (!instance || !ready || appliedPalette.current === paletteKey) return
+    const controller = new AbortController()
+    const nextElements = project.composition.elements
+    const changed = instance.getObjects().flatMap((object) => {
+      const previous = records.current.get(object)
+      const next = nextElements.find((element) => element.id === previous?.id)
+      return previous && next && JSON.stringify(previous) !== JSON.stringify(next) ? [{ object, next }] : []
+    })
+    // Keep the current frame visible until every changed element is ready.
+    void Promise.all(changed.map(async ({ object, next }) => ({ object, next, rendered: await renderElement(next, assets, controller.signal, Boolean(project.composition.design?.overrides[next.id]?.replacement)) }))).then((updates) => {
+      if (controller.signal.aborted || canvas.current !== instance) { updates.forEach(({ rendered }) => rendered.dispose()); return }
+      const selectedIds = instance.getActiveObjects().map((object) => records.current.get(object)?.id)
+      applyingSelection.current = true
+      instance.discardActiveObject()
+      const renderOnAddRemove = instance.renderOnAddRemove
+      instance.renderOnAddRemove = false
+      for (const { object, next, rendered } of updates) {
+        const index = instance.getObjects().indexOf(object)
+        instance.remove(object)
+        records.current.delete(object)
+        records.current.set(rendered, next)
+        instance.insertAt(index, rendered)
+        object.dispose()
+      }
+      instance.backgroundColor = project.composition.background
+      const selected = instance.getObjects().filter((object) => selectedIds.includes(records.current.get(object)?.id))
+      if (selected.length === 1) instance.setActiveObject(selected[0])
+      else if (selected.length > 1) instance.setActiveObject(new ActiveSelection(selected, { canvas: instance }))
+      instance.renderOnAddRemove = renderOnAddRemove
+      applyingSelection.current = false
+      appliedPalette.current = paletteKey
+      instance.requestRenderAll()
+    }).catch((cause: unknown) => {
+      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Unable to update project colors.')
+    })
+    return () => controller.abort()
+  }, [paletteKey, ready, project, assets])
+
   useEffect(() => {
     const instance = canvas.current
     if (!instance || !ready) return
+    // Canvas events already applied this selection. Do not echo it back while
+    // Fabric is constructing or updating a Shift-click selection.
+    if (canvasSelectionId.current === selectedBlockId) return
+    canvasSelectionId.current = null
+    if (selectedBlockId === '__multiple__') return
     const objects = instance.getObjects()
     const object = objects.find((item) => records.current.get(item)?.id === selectedBlockId)
       ?? objects.find((item) => { const element = records.current.get(item); return element?.blockId === selectedBlockId && element.visible && !element.locked })
@@ -187,7 +262,10 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
         return
       }
       if ((event.key === 'Delete' || event.key === 'Backspace') && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
-        if (!active || records.current.get(active)?.blockId) return
+        if (!active || !canvas.current?.getActiveObjects().some((object) => {
+          const selected = records.current.get(object)
+          return selected && !selected.blockId
+        })) return
         event.preventDefault()
         deleteSelection()
         return
@@ -332,13 +410,67 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
     const index = instance.getObjects().indexOf(active)
     const object = await renderElement(next, assets, new AbortController().signal, true)
     if (canvas.current !== instance || instance.getActiveObject() !== active || request !== editRequest.current) { object.dispose(); return }
+    replacingSelectedElement.current = true
+    applyingSelection.current = true
+    const renderOnAddRemove = instance.renderOnAddRemove
+    instance.renderOnAddRemove = false
     instance.remove(active)
     records.current.delete(active)
     records.current.set(object, next)
     instance.insertAt(index, object)
     instance.setActiveObject(object)
+    instance.renderOnAddRemove = renderOnAddRemove
+    applyingSelection.current = false
+    setSelection(next)
+    setSelectedText(next.type === 'text' ? next.text : null)
+    setMultipleElements([next])
+    replacingSelectedElement.current = false
+    active.dispose()
     instance.requestRenderAll()
     sync(instance)
+  }
+
+  async function duplicateSelected() {
+    const instance = canvas.current, active = instance?.getActiveObject()
+    const original = active && records.current.get(active)
+    if (!instance || !active || !original || busy) return
+    setBusy(true); setError(null)
+    try {
+      const current = readElement(active, original)
+      const copy: Element = { ...structuredClone(current), id: crypto.randomUUID(), blockId: undefined,
+        name: `${current.name} copy`, x: current.x + 12, y: current.y + 12, locked: false }
+      const object = await renderElement(copy, assets, new AbortController().signal, true)
+      if (canvas.current !== instance) { object.dispose(); return }
+      records.current.set(object, copy)
+      instance.insertAt(instance.getObjects().indexOf(active) + 1, object)
+      instance.setActiveObject(object)
+      instance.requestRenderAll()
+      sync(instance)
+    } catch { if (mounted.current) setError('Unable to duplicate this element.') }
+    finally { if (mounted.current) setBusy(false) }
+  }
+
+  function changeRotation(angle: number) {
+    const instance = canvas.current, active = instance?.getActiveObject()
+    const original = active && records.current.get(active)
+    if (!instance || !active || !original || !Number.isFinite(angle)) return
+    active.set({ angle })
+    active.setCoords()
+    instance.requestRenderAll()
+    setSelection(readElement(active, original))
+    sync(instance, undefined, `rotation:${original.id}`)
+  }
+
+  function changeLayer(action: 'front' | 'forward' | 'backward' | 'back') {
+    const instance = canvas.current, active = instance?.getActiveObject()
+    if (!instance || !active || !selection || busy) return
+    const objects = instance.getObjects(), index = objects.indexOf(active)
+    const target = action === 'front' ? objects.length - 1 : action === 'back' ? 0 : index + (action === 'forward' ? 1 : -1)
+    if (target < 0 || target >= objects.length || target === index) return
+    instance.moveObjectTo(active, target)
+    instance.requestRenderAll()
+    sync(instance)
+    setSelection({ ...selection })
   }
 
   async function restoreElement() {
@@ -491,13 +623,60 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
     }
   }
 
-  function changeImageFilter(update: Partial<ImageFilters> | null) {
+  function changeImageFilter(update: Partial<ImageFilters> | null, shadowUpdate?: Partial<NonNullable<ImageFilters['shadow']>>) {
     const instance = canvas.current, active = instance?.getActiveObject()
+    if (instance && active instanceof ActiveSelection) {
+      const selected = instance.getActiveObjects()
+      if (!selected.every((object) => records.current.get(object)?.type === 'image')) return
+      const request = ++editRequest.current
+      const updates = selected.map((object) => {
+        const current = readElement(object, records.current.get(object)!)
+        if (current.type !== 'image') throw new Error('Expected an image.')
+        const element = { ...current, filters: updateImageFilters(current.filters, update, shadowUpdate) }
+        records.current.set(object, element)
+        return { object, element }
+      })
+      setMultipleElements(updates.map(({ element }) => element))
+      sync(instance, undefined, `image-filters:${updates.map(({ element }) => element.id).sort().join(',')}`)
+      void (async () => {
+        const results = await Promise.allSettled(updates.map(async (entry) => ({ ...entry, rendered: await renderElement(entry.element, assets, new AbortController().signal, true) })))
+        const replacements = results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])
+        if (canvas.current !== instance || request !== editRequest.current || results.some((result) => result.status === 'rejected')) {
+          replacements.forEach(({ rendered }) => rendered.dispose())
+          if (mounted.current && request === editRequest.current && results.some((result) => result.status === 'rejected')) setError('Unable to apply image filters.')
+          return
+        }
+        // Release group-relative coordinates before replacing the images.
+        const currentSelection = instance.getActiveObjects()
+        const placements = new Map(replacements.map(({ object, element }) => [object, readElement(object, element)]))
+        applyingSelection.current = true
+        instance.discardActiveObject()
+        const objects = new Map(replacements.map(({ object, rendered }) => [object, rendered]))
+        for (const { object, element, rendered } of replacements) {
+          const index = instance.getObjects().indexOf(object)
+          if (index < 0) { rendered.dispose(); continue }
+          instance.remove(object)
+          records.current.delete(object)
+          const placed = placements.get(object) ?? element
+          rendered.set({ left: placed.x, top: placed.y, scaleX: placed.scaleX, scaleY: placed.scaleY, angle: placed.rotation })
+          rendered.setCoords()
+          records.current.set(rendered, placed)
+          instance.insertAt(index, rendered)
+          object.dispose()
+        }
+        const restored = currentSelection.map((object) => objects.get(object) ?? object).filter((object) => instance.getObjects().includes(object))
+        if (restored.length > 1) instance.setActiveObject(new ActiveSelection(restored, { canvas: instance }))
+        else if (restored.length === 1) instance.setActiveObject(restored[0])
+        applyingSelection.current = false
+        instance.requestRenderAll()
+      })().catch(() => { if (mounted.current) setError('Unable to apply image filters.') })
+      return
+    }
     const original = active ? records.current.get(active) : undefined
     if (!instance || !active || original?.type !== 'image') return
     const current = readElement(active, original)
     if (current.type !== 'image') return
-    const next = { ...current, filters: update ? { ...current.filters, ...update } : {} }
+    const next = { ...current, filters: updateImageFilters(current.filters, update, shadowUpdate) }
     // Commit before asynchronous rendering: switching selection or closing the
     // editor must not discard an adjustment that the user has already made.
     records.current.set(active, next)
@@ -508,45 +687,136 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
 
   const projectFonts = project.composition.design?.styles.fonts ?? { heading: 'Georgia', body: 'Arial', technical: 'Arial' }
   const fontOptions = (['heading', 'body', 'technical'] as const).map((role) => <option key={role} value={role}>{role[0].toUpperCase() + role.slice(1)} · {projectFonts[role]}</option>)
+  const commonType = multipleElements.length > 1 && multipleElements.every((element) => element.type === multipleElements[0].type) ? multipleElements[0].type : null
+  async function changeCommonStyle(property: 'fill' | 'fontRole', value: string) {
+    const instance = canvas.current
+    if (!instance || busy) return
+    const active = instance.getActiveObjects()
+    if (active.length < 2) return
+    const selected = new Set(active)
+    const updates = instance.getObjects().map((object) => {
+      const original = records.current.get(object)!
+      const current = readElement(object, original)
+      if (!selected.has(object)) return { object, element: current }
+      const element = property === 'fill'
+        ? { ...current, ...(current.type === 'table' ? { textColor: value } : { fill: value }) }
+        : { ...current, fontRole: value as FontRole, fontFamily: projectFonts[value as FontRole] }
+      return { object, element: element as Element }
+    })
+    setBusy(true)
+    try {
+      const replacements = await Promise.all(updates.filter(({ object }) => selected.has(object)).map(async (entry) => ({ ...entry, rendered: await renderElement(entry.element, assets, new AbortController().signal, true) })))
+      if (canvas.current !== instance) { replacements.forEach(({ rendered }) => rendered.dispose()); return }
+      instance.discardActiveObject()
+      for (const { object, element, rendered } of replacements) {
+        const index = instance.getObjects().indexOf(object)
+        instance.remove(object); records.current.delete(object)
+        records.current.set(rendered, element); instance.insertAt(index, rendered)
+      }
+      instance.setActiveObject(new ActiveSelection(replacements.map(({ rendered }) => rendered), { canvas: instance }))
+      instance.requestRenderAll()
+      sync(instance)
+    } catch { setError('Unable to update the selected elements.') }
+    finally { if (mounted.current) setBusy(false) }
+  }
+  const commonValue = (property: 'fill' | 'fontRole') => {
+    const values = multipleElements.map((element) => property === 'fill' ? element.type === 'table' ? element.textColor : 'fill' in element ? element.fill : '' : 'fontRole' in element ? element.fontRole ?? 'body' : '')
+    return values.every((value) => value === values[0]) ? values[0] : ''
+  }
+  const imageSelection = selection?.type === 'image' ? selection : commonType === 'image' && multipleElements[0]?.type === 'image' ? multipleElements[0] : null
+  const imageFilterControls = imageSelection && <section aria-label="Image filters" className="selection-styles">
+      <h3>Image filters</h3>
+      {commonType === 'image' && <p className="small muted">Changes apply to all selected images. Controls show the first image’s values; other filters are preserved.</p>}
+      {(['brightness', 'contrast', 'saturation'] as const).map((key) => <label className="field" key={key}>{key[0].toUpperCase() + key.slice(1)} · {Math.round((imageSelection.filters?.[key] ?? 0) * 100)}%<input aria-label={`Image ${key}`} type="range" min="-1" max="1" step="0.01" value={imageSelection.filters?.[key] ?? 0} onChange={(event) => changeImageFilter({ [key]: Number(event.target.value) })} /></label>)}
+      {(['grayscale', 'invert'] as const).map((key) => <label className="checkbox-field" key={key}><input type="checkbox" checked={imageSelection.filters?.[key] ?? false} onChange={(event) => changeImageFilter({ [key]: event.target.checked })} />{key === 'grayscale' ? 'Grayscale' : 'Invert colors'}</label>)}
+      <label className="checkbox-field"><input type="checkbox" checked={Boolean(imageSelection.filters?.tint)} onChange={(event) => changeImageFilter({ tint: event.target.checked ? '#26322d' : undefined, tintRole: undefined })} />Use a single color</label>
+      {imageSelection.filters?.tint && <div className="field">Image color<ColorPicker label="Image color" colors={project.composition.design?.styles.colors} value={imageSelection.filters.tint} onChange={(color, role) => changeImageFilter({ tint: color, tintRole: role })} /></div>}
+      <label className="field">Image blur · {Math.round((imageSelection.filters?.blur ?? 0) * 100)}%<input aria-label="Image blur" type="range" min="0" max="1" step="0.01" value={imageSelection.filters?.blur ?? 0} onChange={(event) => changeImageFilter({ blur: Number(event.target.value) })} /></label>
+      <label className="field">Backdrop blur · {imageSelection.filters?.backdropBlur ?? 0} px<input aria-label="Backdrop blur" type="range" min="0" max="100" step="1" value={imageSelection.filters?.backdropBlur ?? 0} onChange={(event) => changeImageFilter({ backdropBlur: Number(event.target.value) })} /></label>
+      <p className="small muted">Backdrop blur softens layers behind the image frame. It shows through transparent areas.</p>
+      <label className="checkbox-field"><input type="checkbox" checked={Boolean(imageSelection.filters?.shadow)} onChange={(event) => changeImageFilter({ shadow: event.target.checked ? { color: '#000000', opacity: 0.6, blur: 12, offsetX: 0, offsetY: 0 } : undefined })} />Contour shadow</label>
+      {imageSelection.filters?.shadow && <>
+        <div className="field">Shadow color<ColorPicker label="Shadow color" colors={project.composition.design?.styles.colors} value={imageSelection.filters.shadow.color} onChange={(color) => changeImageFilter({}, { color })} /></div>
+        <label className="field">Shadow opacity<input aria-label="Shadow opacity" type="range" min="0" max="1" step="0.01" value={imageSelection.filters.shadow.opacity} onChange={(event) => changeImageFilter({}, { opacity: Number(event.target.value) })} /></label>
+        <label className="field">Shadow blur · {imageSelection.filters.shadow.blur} px<input aria-label="Shadow blur" type="range" min="0" max="100" step="1" value={imageSelection.filters.shadow.blur} onChange={(event) => changeImageFilter({}, { blur: Number(event.target.value) })} /></label>
+        <div className="form-row">{(['offsetX', 'offsetY'] as const).map((key) => <label className="field" key={key}>Shadow {key === 'offsetX' ? 'X' : 'Y'}<input aria-label={`Shadow ${key}`} type="number" min="-200" max="200" value={imageSelection.filters!.shadow![key]} onChange={(event) => { const value = event.target.valueAsNumber; if (Number.isFinite(value) && Math.abs(value) <= 200) changeImageFilter({}, { [key]: value }) }} /></label>)}</div>
+      </>}
+      <button onClick={() => changeImageFilter(null)}>Reset filters</button>
+      <p className="small muted">The original assets stay unchanged.</p>
+    </section>
+  const multipleControls = <section className="element-controls" aria-label="Selected elements settings">
+    <p className="eyebrow">{selectionCount} ELEMENTS SELECTED</p>
+    {commonType === 'image' ? imageFilterControls : commonType && ['text', 'shape', 'table'].includes(commonType) ? <>
+      <div className="field">{commonType === 'shape' ? 'Color' : 'Text color'}{!commonValue('fill') && <span className="small muted">Mixed colors</span>}<ColorPicker label="Selected elements color" colors={project.composition.design?.styles.colors} value={commonValue('fill') || '#172129'} onChange={(color) => void changeCommonStyle('fill', color)} /></div>
+      {(commonType === 'text' || commonType === 'table') && <label className="field">Font<select aria-label="Selected elements font" disabled={busy} value={commonValue('fontRole')} onChange={(event) => void changeCommonStyle('fontRole', event.target.value)}>
+        <option value="" disabled>Mixed fonts</option>{fontOptions}
+      </select></label>}
+    </> : <p className="muted">{commonType ? 'These elements have no shared color or font controls.' : 'Select elements of the same type to edit their shared styles.'}</p>}
+  </section>
 
   const elementControls = <section className="element-controls" aria-label="Selected element settings">
     <p className="eyebrow">SELECTED ELEMENT</p>
     <h3>{selection?.name ?? 'Make it yours.'}</h3>
+    {selection && <div className="selection-styles" role="group" aria-label="Layer order">
+      <div className="element-action-toolbar" role="toolbar" aria-label="Element actions">
+      <div className="layer-order-actions" role="group" aria-label="Layer order">
+        {([
+          ['front', 'Bring to front', BringToFront],
+          ['forward', 'Bring forward', ArrowUp],
+          ['backward', 'Send backward', ArrowDown],
+          ['back', 'Send to back', SendToBack],
+        ] as const).map(([action, label, icon]) => <button key={action} className="layer-order-button" title={label} aria-label={label}
+          disabled={busy || (action === 'front' || action === 'forward' ? project.composition.elements.at(-1)?.id === selection.id : project.composition.elements[0]?.id === selection.id)}
+          onClick={() => changeLayer(action)}>
+          <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            {icon.map(([tag, attrs], index) => createElement(tag, { ...attrs, key: index }))}
+          </svg>
+        </button>)}
+      </div>
+      <button className="layer-order-button" title="Duplicate element" aria-label="Duplicate element" disabled={busy} onClick={() => void duplicateSelected()}>
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          {Copy.map(([tag, attrs], index) => createElement(tag, { ...attrs, key: index }))}
+        </svg>
+      </button>
+      {selection.blockId && project.composition.design && <button className="layer-order-button" disabled={busy || !project.composition.design.overrides[selection.id]} aria-label="Restore template element" title="Restore template element: reset content, type, style and position" onClick={() => void restoreElement()}>
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          {Undo2.map(([tag, attrs], index) => createElement(tag, { ...attrs, key: index }))}
+        </svg>
+      </button>}
+      </div>
+    </div>}
     {selection && <label className="field">Element type<select aria-label="Selected element type" value={selection.type} disabled={busy} onChange={(event) => void changeElementType(event.target.value as Element['type'])}>
       <option value="image">Image</option><option value="text">Text</option><option value="shape">Box</option><option value="table">Table</option><option value="rating">PEGI</option><option value="qr">QR code</option>
     </select></label>}
-    {selection?.type === 'image' && <button disabled={busy} onClick={() => { const active = canvas.current?.getActiveObject(); if (active) imageTarget.current = readElement(active, selection); setShowAssets(true) }}>Replace image</button>}
-    {selection?.type === 'image' && <button disabled={busy} onClick={() => { const active = canvas.current?.getActiveObject(); const asset = assets[selection.assetId]; if (active && asset) { imageTarget.current = readElement(active, selection); setCropAsset(asset) } }}>Crop image</button>}
+    {selection?.type === 'image' && <div className="image-action-buttons image-primary-actions" role="group" aria-label="Image actions">
+      <button disabled={busy} onClick={() => { const active = canvas.current?.getActiveObject(); if (active) imageTarget.current = readElement(active, selection); setShowAssets(true) }}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{ImagePlus.map(([tag, attrs], index) => createElement(tag, { ...attrs, key: index }))}</svg>Replace image</button>
+      <button disabled={busy} onClick={() => { const active = canvas.current?.getActiveObject(); const asset = assets[selection.assetId]; if (active && asset) { imageTarget.current = readElement(active, selection); setCropAsset(asset) } }}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{Crop.map(([tag, attrs], index) => createElement(tag, { ...attrs, key: index }))}</svg>Crop image</button>
+    </div>}
+    {selection && <div className="selection-styles rotation-controls" role="group" aria-label="Element rotation">
+      <label className="field">Rotation · {Math.round(selection.rotation)}°<input aria-label="Element rotation" type="range" min="-180" max="180" step="1" value={((selection.rotation + 180) % 360 + 360) % 360 - 180} onChange={(event) => changeRotation(event.target.valueAsNumber)} /></label>
+      <div className="layer-order-actions" role="group" aria-label="Rotation actions">
+        {([
+          ['Rotate left 90°', RotateCcw, selection.rotation - 90],
+          ['Reset rotation', RotateCcwSquare, 0],
+          ['Rotate right 90°', RotateCw, selection.rotation + 90],
+        ] as const).map(([label, icon, angle]) => <button key={label} className="layer-order-button" title={label} aria-label={label} disabled={busy} onClick={() => changeRotation(angle)}>
+          <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            {icon.map(([tag, attrs], index) => createElement(tag, { ...attrs, key: index }))}
+          </svg>
+        </button>)}
+      </div>
+    </div>}
     {selection?.type === 'image' && <div className="selection-styles">
       <label className="field">Image fit<select aria-label="Image fit" value={selection.fit ?? 'stretch'} onChange={(e) => void editElement({ ...selection, fit: e.target.value === 'stretch' ? undefined : e.target.value as 'cover' | 'contain' | 'repeat' })}>
         <option value="stretch">Stretch</option><option value="cover">Cover</option><option value="contain">Contain</option><option value="repeat">Repeat</option>
       </select></label>
       <div className="form-row">{(['x', 'y'] as const).map((axis) => <label className="field" key={axis}>Position {axis.toUpperCase()} (px)<input aria-label={`Image position ${axis.toUpperCase()}`} type="number" step="1" value={Math.round(selection[axis] * 100) / 100} onChange={(e) => { const value = e.target.valueAsNumber; if (Number.isFinite(value)) void editElement({ ...selection, [axis]: value }, false) }} /></label>)}</div>
-      <label className="field">Scale (%)<input aria-label="Image scale" type="number" min="1" step="5" value={Math.round((selection.imageScale ?? 1) * 100)} onChange={(e) => { const value = e.target.valueAsNumber; if (value > 0) void editElement({ ...selection, fit: selection.fit ?? 'contain', imageScale: value / 100 }) }} /></label>
-      <div className="form-row">{(['offsetX', 'offsetY'] as const).map((axis) => <label className="field" key={axis}>Offset {axis === 'offsetX' ? 'X' : 'Y'} (px)<input aria-label={`Image ${axis}`} type="number" step="1" value={selection[axis] ?? 0} onChange={(e) => { const value = e.target.valueAsNumber; if (Number.isFinite(value)) void editElement({ ...selection, fit: selection.fit ?? 'contain', [axis]: value }) }} /></label>)}</div>
+      <label className="field">Scale · {Math.round((selection.imageScale ?? 1) * 100)}%<input aria-label="Image scale" type="range" min="1" max={Math.max(500, Math.round((selection.imageScale ?? 1) * 100))} step="1" value={Math.round((selection.imageScale ?? 1) * 100)} onChange={(e) => { const value = e.target.valueAsNumber; if (value > 0) void editElement({ ...selection, fit: selection.fit ?? 'contain', imageScale: value / 100 }) }} /></label>
+      <div className="form-row">{(['offsetX', 'offsetY'] as const).map((axis) => <label className="field" key={axis}>Offset {axis === 'offsetX' ? 'X' : 'Y'} · {Math.round(selection[axis] ?? 0)} px<input aria-label={`Image ${axis}`} type="range" min={-Math.max(axis === 'offsetX' ? selection.width : selection.height, Math.abs(selection[axis] ?? 0))} max={Math.max(axis === 'offsetX' ? selection.width : selection.height, Math.abs(selection[axis] ?? 0))} step="1" value={selection[axis] ?? 0} onChange={(e) => { const value = e.target.valueAsNumber; if (Number.isFinite(value)) void editElement({ ...selection, fit: selection.fit ?? 'contain', [axis]: value }) }} /></label>)}</div>
       <button onClick={() => void editElement({ ...selection, imageScale: 1, offsetX: 0, offsetY: 0, focalX: 0.5, focalY: 0.5 })}>Center image & reset scale</button>
       <p className="small muted">Drag the frame on the canvas to move it. Scale and offsets adjust the image inside its frame.</p>
     </div>}
-    {selection?.type === 'image' && <section aria-label="Image filters" className="selection-styles">
-      <h3>Image filters</h3>
-      {(['brightness', 'contrast', 'saturation'] as const).map((key) => <label className="field" key={key}>{key[0].toUpperCase() + key.slice(1)} · {Math.round((selection.filters?.[key] ?? 0) * 100)}%<input aria-label={`Image ${key}`} type="range" min="-1" max="1" step="0.01" value={selection.filters?.[key] ?? 0} onChange={(event) => changeImageFilter({ [key]: Number(event.target.value) })} /></label>)}
-      {(['grayscale', 'invert'] as const).map((key) => <label className="checkbox-field" key={key}><input type="checkbox" checked={selection.filters?.[key] ?? false} onChange={(event) => changeImageFilter({ [key]: event.target.checked })} />{key === 'grayscale' ? 'Grayscale' : 'Invert colors'}</label>)}
-      <label className="checkbox-field"><input type="checkbox" checked={Boolean(selection.filters?.tint)} onChange={(event) => changeImageFilter({ tint: event.target.checked ? '#26322d' : undefined })} />Use a single color</label>
-      {selection.filters?.tint && <div className="field">Image color<ColorPicker label="Image color" colors={project.composition.design?.styles.colors} value={selection.filters.tint} onChange={(color) => changeImageFilter({ tint: color })} /></div>}
-      <label className="field">Image blur · {Math.round((selection.filters?.blur ?? 0) * 100)}%<input aria-label="Image blur" type="range" min="0" max="1" step="0.01" value={selection.filters?.blur ?? 0} onChange={(event) => changeImageFilter({ blur: Number(event.target.value) })} /></label>
-      <label className="field">Backdrop blur · {selection.filters?.backdropBlur ?? 0} px<input aria-label="Backdrop blur" type="range" min="0" max="100" step="1" value={selection.filters?.backdropBlur ?? 0} onChange={(event) => changeImageFilter({ backdropBlur: Number(event.target.value) })} /></label>
-      <p className="small muted">Backdrop blur softens layers behind the image frame. It shows through transparent areas.</p>
-      <label className="checkbox-field"><input type="checkbox" checked={Boolean(selection.filters?.shadow)} onChange={(event) => changeImageFilter({ shadow: event.target.checked ? { color: '#000000', opacity: 0.6, blur: 12, offsetX: 0, offsetY: 0 } : undefined })} />Contour shadow</label>
-      {selection.filters?.shadow && <>
-        <div className="field">Shadow color<ColorPicker label="Shadow color" colors={project.composition.design?.styles.colors} value={selection.filters.shadow.color} onChange={(color) => changeImageFilter({ shadow: { ...selection.filters!.shadow!, color } })} /></div>
-        <label className="field">Shadow opacity<input aria-label="Shadow opacity" type="range" min="0" max="1" step="0.01" value={selection.filters.shadow.opacity} onChange={(event) => changeImageFilter({ shadow: { ...selection.filters!.shadow!, opacity: Number(event.target.value) } })} /></label>
-        <label className="field">Shadow blur · {selection.filters.shadow.blur} px<input aria-label="Shadow blur" type="range" min="0" max="100" step="1" value={selection.filters.shadow.blur} onChange={(event) => changeImageFilter({ shadow: { ...selection.filters!.shadow!, blur: Number(event.target.value) } })} /></label>
-        <div className="form-row">{(['offsetX', 'offsetY'] as const).map((key) => <label className="field" key={key}>Shadow {key === 'offsetX' ? 'X' : 'Y'}<input aria-label={`Shadow ${key}`} type="number" min="-200" max="200" value={selection.filters!.shadow![key]} onChange={(event) => { const value = event.target.valueAsNumber; if (Number.isFinite(value) && Math.abs(value) <= 200) changeImageFilter({ shadow: { ...selection.filters!.shadow!, [key]: value } }) }} /></label>)}</div>
-      </>}
-      <button onClick={() => changeImageFilter(null)}>Reset filters</button>
-      <p className="small muted">Applies to this element. The original asset stays unchanged.</p>
-    </section>}
-    {selection?.blockId && project.composition.design && <><button disabled={busy || !project.composition.design.overrides[selection.id]} title="Reset this element’s content, type, style and position to the current template" onClick={() => void restoreElement()}>Restore template element</button><p className="small muted">Resets this element’s content, type, style and position to the current template.</p></>}
+    {imageFilterControls}
     {selectedText !== null ? <label className="field">Selected text
       <textarea aria-label="Selected text" rows={7} value={selectedText} onChange={(event) => editText(event.target.value)} />
     </label> : <p className="muted">{'Edit the selected element’s properties.'}</p>}
@@ -608,8 +878,10 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
           {([['image', '▧', 'Image'], ['text', 'T', 'Text'], ['shape', '□', 'Box'], ['table', '▦', 'Table'], ['rating', '12', 'PEGI'], ['qr', '▦', 'QR code']] as const).map(([type, icon, label]) => <button key={type} className="element-icon-button" title={`Add ${label}`} aria-label={`Add ${label}`} disabled={!ready || busy} onClick={() => void addElement(type)}><span aria-hidden="true">{icon}</span><span className="small">{label}</span></button>)}
           <button className="element-icon-button" disabled={!ready || busy} aria-expanded={showLogos} aria-controls="shared-logo-library" onClick={() => setShowLogos((shown) => !shown)}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"><path d="m12 3 3 6 6 1-4.5 4.5 1 6.5-5.5-3-5.5 3 1-6.5L3 10l6-1z" /></svg><span className="small">Logos</span></button>
           <button className="element-icon-button" disabled={!hasSelection || busy} onClick={removeSelected}><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" /></svg><span className="small">Delete</span></button>
+          <div className="history-actions" role="group" aria-label="Undo and redo">
           <button className="element-icon-button" disabled={!ready || busy || !canUndo} onClick={onUndo} title="Undo (Ctrl/Cmd+Z)"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m9 4-6 6 6 6M3 10h11a7 7 0 0 1 7 7v3" /></svg><span className="small">Undo</span></button>
           <button className="element-icon-button" disabled={!ready || busy || !canRedo} onClick={onRedo} title="Redo (Ctrl/Cmd+Shift+Z)"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m15 4 6 6-6 6M21 10H10a7 7 0 0 0-7 7v3" /></svg><span className="small">Redo</span></button>
+          </div>
         </div>
         <div className="toolbar-group">
           <label className="zoom-control">Zoom
@@ -642,13 +914,51 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
       {exported && <p className="export-result" role="status">PNG ready · {format.width} × {format.height} px. <a href={exported.url} download={exported.filename}>Save PNG</a></p>}
       <div className="editor-body">
         <div className="canvas-workspace" ref={workspace} onPointerDown={(event) => {
-          if (event.button !== 0 || (event.target as HTMLElement).closest('.canvas-frame')) return
+          if (event.button !== 0 || !event.isPrimary || !ready || busy || (event.target as HTMLElement).closest('.canvas-frame')) return
           const instance = canvas.current
           if (!instance) return
+          event.preventDefault()
+          event.currentTarget.setPointerCapture(event.pointerId)
+          outsideSelection.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY }
+          setSelectionRectangle(null)
           instance.discardActiveObject()
           instance.requestRenderAll()
           blockSelectionHandler.current('')
+        }} onPointerMove={(event) => {
+          const start = outsideSelection.current
+          if (!start || start.pointerId !== event.pointerId) return
+          setSelectionRectangle(selectionBounds(start, { x: event.clientX, y: event.clientY }))
+        }} onPointerUp={(event) => {
+          const start = outsideSelection.current
+          if (!start || start.pointerId !== event.pointerId) return
+          outsideSelection.current = null
+          setSelectionRectangle(null)
+          event.currentTarget.releasePointerCapture(event.pointerId)
+          const instance = canvas.current
+          if (!instance || Math.hypot(event.clientX - start.x, event.clientY - start.y) < 3) return
+          const rect = instance.upperCanvasEl.getBoundingClientRect()
+          if (!rect.width || !rect.height) return
+          const toScene = (x: number, y: number) => ({
+            x: (x - rect.left) * instance.getWidth() / rect.width / instance.getZoom(),
+            y: (y - rect.top) * instance.getHeight() / rect.height / instance.getZoom(),
+          })
+          const bounds = selectionBounds(toScene(start.x, start.y), toScene(event.clientX, event.clientY))
+          const collected = new Set(instance.collectObjects(bounds, { includeIntersecting: !instance.selectionFullyContained }))
+          const objects = instance.getObjects().filter((object) => collected.has(object))
+          if (objects.length === 1) instance.setActiveObject(objects[0])
+          else if (objects.length > 1) instance.setActiveObject(new ActiveSelection(objects, { canvas: instance }))
+          instance.requestRenderAll()
+        }} onLostPointerCapture={() => {
+          outsideSelection.current = null
+          setSelectionRectangle(null)
+        }} onPointerCancel={() => {
+          outsideSelection.current = null
+          setSelectionRectangle(null)
         }}>
+          {selectionRectangle && createPortal(<div aria-hidden="true" style={{
+            position: 'fixed', ...selectionRectangle, pointerEvents: 'none', zIndex: 100,
+            border: `1px solid ${selectionStyle.borderColor}`, background: 'rgba(194, 227, 181, 0.3)',
+          }} />, document.body)}
           <div className="canvas-sheet" style={{ width: format.width * zoom }}>
             <div className="panel-labels">
               {format.panels.map((panel) => <span key={panel.id} style={{ width: `${panel.width / format.width * 100}%` }}>{panel.id}</span>)}
@@ -658,11 +968,12 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
               {format.panels.slice(1).map((panel) => <span className="panel-guide" key={panel.id} style={{ left: `${panel.x / format.width * 100}%` }} />)}
             </div>
           </div>
-          <p className="canvas-note">Arrow keys to move 1 px · Shift + arrow keys to move 10 px · {project.composition.design ? 'Drag to position · Use handles to resize and rotate · Select a template element to edit its content in the sidebar' : 'Drag to position · Use handles to resize and rotate · Double-click text to edit'}</p>
+          {selectionCount > 1 && <p className="canvas-note" role="status">{selectionCount} elements selected · Drag to move together</p>}
+          <p className="canvas-note">Arrow keys to move 1 px · Shift + arrow keys to move 10 px · Shift-click to select several elements · Drag from the space around the cover to select with a rectangle · {project.composition.design ? 'Drag to position · Use handles to resize and rotate · Select a template element to edit its content in the sidebar' : 'Drag to position · Use handles to resize and rotate · Double-click text to edit'}</p>
         </div>
         {project.composition.design
-          ? inspectorHost && selection && (selection.id === selectedBlockId || selection.blockId === selectedBlockId) && createPortal(elementControls, inspectorHost)
-          : <aside className="inspector">{elementControls}</aside>}
+          ? inspectorHost && (selectionCount > 1 ? createPortal(multipleControls, inspectorHost) : selection && (selection.id === selectedBlockId || selection.blockId === selectedBlockId) && createPortal(elementControls, inspectorHost))
+          : <aside className="inspector">{selectionCount > 1 ? multipleControls : elementControls}</aside>}
 
       </div>
     </div>

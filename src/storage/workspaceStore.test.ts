@@ -514,3 +514,19 @@ describe('cover deletion', () => {
     expect(store.hasUnsavedChanges()).toBe(false)
   })
 })
+
+it('does not insert an existing image again when reusing artwork and editing a slider', async () => {
+  const storage = repository()
+  const store = new WorkspaceStore(storage)
+  await store.load()
+  const id = store.createSteam()!
+  const asset: Asset = { id: 'shared-art', name: 'Artwork', blob: new Blob(['art'], { type: 'image/png' }), mimeType: 'image/png', width: 1, height: 1 }
+  store.addProjectAssets(id, [asset])
+  await store.flush()
+  store.addProjectAssets(id, [{ ...asset }])
+  const elements = store.getSnapshot().projects[0].composition.elements.map((element) => element.type === 'image' ? { ...element, imageScale: 1.25 } : element)
+  store.changeElements(id, elements)
+  await store.flush()
+  expect(store.getSnapshot()).toMatchObject({ status: 'saved', error: null })
+  expect(Object.keys((await storage.load()).assets)).toEqual([asset.id])
+})

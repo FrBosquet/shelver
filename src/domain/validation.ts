@@ -1,3 +1,4 @@
+import { colorLabels } from './colorLabels'
 import { tableIcons } from './tableIcons'
 import { SCHEMA_VERSION } from './types'
 import type { Asset, CoverDesign, Element, Project } from './types'
@@ -63,6 +64,7 @@ function validElement(element: unknown): element is Element {
         && finite(element.filters.shadow.opacity) && element.filters.shadow.opacity >= 0 && element.filters.shadow.opacity <= 1
         && ['offsetX', 'offsetY'].every((key) => isRecord(element.filters) && isRecord(element.filters.shadow) && finite(element.filters.shadow[key]) && Math.abs(element.filters.shadow[key]) <= 200))
       && ['grayscale', 'invert'].every((key) => element.filters && isRecord(element.filters) && (element.filters[key] === undefined || typeof element.filters[key] === 'boolean'))
+      && (element.filters.tintRole === undefined || typeof element.filters.tintRole === 'string' && Object.hasOwn(colorLabels, element.filters.tintRole))
       && (element.filters.tint === undefined || typeof element.filters.tint === 'string' && /^#[0-9a-f]{6}$/i.test(element.filters.tint)))
     && (element.fit === undefined || ['cover', 'contain', 'repeat'].includes(String(element.fit)))
     && (element.imageScale === undefined || finite(element.imageScale) && element.imageScale > 0)
@@ -123,6 +125,7 @@ export function validDesign(value: unknown): value is CoverDesign {
     && (override.fontSize === undefined || finite(override.fontSize) && override.fontSize > 0)
     && (override.hidden === undefined || typeof override.hidden === 'boolean'))) return false
   const extraIds = new Set<string>()
+  if (value.layerOrder !== undefined && (!Array.isArray(value.layerOrder) || !value.layerOrder.every((id) => typeof id === 'string' && Boolean(id)) || new Set(value.layerOrder).size !== value.layerOrder.length)) return false
   return Array.isArray(value.extras) && value.extras.every((extra) => {
     if (!isRecord(extra) || !validElement(extra.element) || !validPlacement(extra.placement) || extraIds.has(extra.element.id) || extra.element.id.startsWith(`${value.instanceId}:`)) return false
     extraIds.add(extra.element.id); return true
