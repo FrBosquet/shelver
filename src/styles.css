@@ -271,3 +271,10 @@ textarea { display: block; width: 100%; resize: vertical; padding: 11px; margin-
 .project-color-palette .project-color-swatch { width: 22px; height: 22px; min-width: 22px; padding: 0; border: 1px solid #a7b09f; border-radius: 4px; cursor: pointer; }
 .project-color-swatch[aria-pressed='true'] { outline: 2px solid #354530; outline-offset: 2px; }
 .project-color-swatch:focus-visible { outline: 2px solid #354530; outline-offset: 2px; }
+
+.crop-stage { position: relative; width: fit-content; max-width: 100%; margin: 20px auto; overflow: hidden; cursor: crosshair; touch-action: none; background: repeating-conic-gradient(#e1e3dc 0% 25%, #fafbf5 0% 50%) 0 / 20px 20px; }
+.crop-stage img { display: block; max-width: 100%; max-height: 48vh; user-select: none; }
+.crop-rectangle { position: absolute; box-sizing: border-box; border: 2px solid #fff; outline: 1px solid #26322d; box-shadow: 0 0 0 9999px #0008; pointer-events: none; }
+.crop-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.crop-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
+@media (max-width: 600px) { .crop-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

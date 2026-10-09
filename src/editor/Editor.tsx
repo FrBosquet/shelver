@@ -13,6 +13,7 @@ import { composeDesign } from '../domain/composition'
 import type { Asset, Element, FontRole, ImageFilters, Project } from '../domain/types'
 import { readElement, renderElement } from './fabricAdapter'
 import { AssetPicker } from './AssetPicker'
+import { ImageCropModal } from './ImageCropModal'
 import { sharedLogos } from '../assets/logoLibrary'
 
 type Props = {
@@ -45,6 +46,7 @@ export function Editor({ onUploadAssets, inspectorHost, selectedBlockId, onSelec
   const changeHandler = useRef(onChange)
   const [iconCell, setIconCell] = useState<{ id: string; row: number; column: number } | null>(null)
   const [showAssets, setShowAssets] = useState(false)
+  const [cropAsset, setCropAsset] = useState<Asset | null>(null)
   const mounted = useRef(false)
   const imageTarget = useRef<Element | null>(null)
   const [ready, setReady] = useState(false)
@@ -381,9 +383,12 @@ export function Editor({ onUploadAssets, inspectorHost, selectedBlockId, onSelec
       }
       instance.setActiveObject(object)
       instance.requestRenderAll()
-      sync(instance)
+      sync(instance, asset)
     } catch {
-      if (mounted.current) setError('This image could not be opened. Try a PNG, JPEG, WebP, or SVG file.')
+      const message = 'This image could not be opened. Try a PNG, JPEG, WebP, or SVG file.'
+      if (mounted.current) setError(message)
+      imageTarget.current = target
+      throw new Error(message)
     } finally {
       URL.revokeObjectURL(url)
       if (mounted.current) setBusy(false)
@@ -468,6 +473,7 @@ export function Editor({ onUploadAssets, inspectorHost, selectedBlockId, onSelec
       <option value="image">Image</option><option value="text">Text</option><option value="shape">Box</option><option value="table">Table</option><option value="rating">PEGI</option><option value="qr">QR code</option>
     </select></label>}
     {selection?.type === 'image' && <button disabled={busy} onClick={() => { const active = canvas.current?.getActiveObject(); if (active) imageTarget.current = readElement(active, selection); setShowAssets(true) }}>Replace image</button>}
+    {selection?.type === 'image' && <button disabled={busy} onClick={() => { const active = canvas.current?.getActiveObject(); const asset = assets[selection.assetId]; if (active && asset) { imageTarget.current = readElement(active, selection); setCropAsset(asset) } }}>Crop image</button>}
     {selection?.type === 'image' && <div className="selection-styles">
       <label className="field">Image fit<select aria-label="Image fit" value={selection.fit ?? 'stretch'} onChange={(e) => void editElement({ ...selection, fit: e.target.value === 'stretch' ? undefined : e.target.value as 'cover' | 'contain' | 'repeat' })}>
         <option value="stretch">Stretch</option><option value="cover">Cover</option><option value="contain">Contain</option><option value="repeat">Repeat</option>
@@ -581,7 +587,8 @@ export function Editor({ onUploadAssets, inspectorHost, selectedBlockId, onSelec
           <span className="logo-preview" data-tone={logo.tone}><img src={logo.preview} alt="" /></span><span>{logo.label}</span>
         </button>)}</div>
       </section>}
-      {showAssets && <AssetPicker project={project} assets={assets} onUpload={onUploadAssets} onClose={() => { imageTarget.current = null; setShowAssets(false) }} onSelect={(asset) => { setShowAssets(false); void importImage(asset) }} />}
+      {cropAsset && <ImageCropModal asset={cropAsset} onClose={() => { imageTarget.current = null; setCropAsset(null) }} onApply={async (asset) => { await importImage(asset); setCropAsset(null) }} />}
+      {showAssets && <AssetPicker project={project} assets={assets} onUpload={onUploadAssets} onClose={() => { imageTarget.current = null; setShowAssets(false) }} onSelect={(asset) => { setShowAssets(false); setCropAsset(asset) }} />}
       {error && <p className="error" role="alert">{error}</p>}
       {warnings.length > 0 && <details className="layout-warning"><summary>{warnings.length} text {warnings.length === 1 ? 'area needs' : 'areas need'} more space</summary><p>{warnings.join(' · ')}</p></details>}
       {exported && <p className="export-result" role="status">PNG ready · {format.width} × {format.height} px. <a href={exported.url} download={exported.filename}>Save PNG</a></p>}
