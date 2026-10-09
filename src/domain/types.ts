@@ -34,7 +34,8 @@ export type TextElement = BaseElement & {
 }
 export type ImageElement = BaseElement & { type: 'image'; assetId: string }
 export type ShapeElement = BaseElement & { type: 'shape'; fill: string }
-export type Element = TextElement | ImageElement | ShapeElement
+export type RatingElement = BaseElement & { type: 'rating'; rating: '3' | '7' | '12' | '16' | '18' }
+export type Element = TextElement | ImageElement | ShapeElement | RatingElement
 
 export type Template = {
   schemaVersion: typeof SCHEMA_VERSION

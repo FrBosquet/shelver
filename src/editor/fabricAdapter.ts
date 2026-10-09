@@ -1,4 +1,5 @@
-import { FabricImage, Rect, Textbox } from 'fabric'
+import { FabricImage, Group, Rect, Textbox } from 'fabric'
+import { pegiColor, pegiLayout } from '../domain/pegi'
 import type { FabricObject } from 'fabric'
 import type { Asset, Element } from '../domain/types'
 
@@ -8,6 +9,18 @@ export async function renderElement(element: Element, assets: Record<string, Ass
     object = new Textbox(element.text, { fontFamily: element.fontFamily, fontSize: element.fontSize, fill: element.fill })
   } else if (element.type === 'shape') {
     object = new Rect({ fill: element.fill })
+  } else if (element.type === 'rating') {
+    const badge = pegiLayout(element.width, element.height)
+    const { left, top, width, height, border, inset, square } = badge
+    object = new Group([
+      new Rect({ originX: 'left', originY: 'top', width: element.width, height: element.height, fill: 'transparent', strokeWidth: 0 }),
+      new Rect({ originX: 'left', originY: 'top', left, top, width, height, fill: '#000000', strokeWidth: 0 }),
+      new Rect({ originX: 'left', originY: 'top', left: left + border, top: top + border, width: width - border * 2, height: height - border * 2, fill: '#ffffff', strokeWidth: 0 }),
+      new Rect({ originX: 'left', originY: 'top', left: left + inset, top: top + inset, width: square, height: square, fill: pegiColor(element.rating), strokeWidth: 0 }),
+      new Textbox(element.rating, { originX: 'left', originY: 'top', left: left + inset, top: top + inset - square * 0.025, width: square, fontSize: badge.numberSize, fontWeight: 'bold', fontFamily: 'Arial Narrow, Arial', fill: '#ffffff', textAlign: 'center', lineHeight: 1 }),
+      new Textbox('TM', { originX: 'left', originY: 'top', left: left + width * 0.85, top: top + inset, width: width * 0.12, fontSize: width * 0.065, fontFamily: 'Arial', fill: '#ffffff', textAlign: 'center', lineHeight: 1 }),
+      new Textbox('www.pegi.info', { originX: 'left', originY: 'top', left: left + inset, top: top + inset + square + width * 0.015, width: square, fontSize: badge.footerSize, fontFamily: 'Arial', fill: '#000000', textAlign: 'center', lineHeight: 1 }),
+    ])
   } else {
     const asset = assets[element.assetId]
     if (!asset) throw new Error(`Missing artwork: ${element.name}`)
