@@ -53,7 +53,7 @@ export function createSteamProject(format: Format = workingFormats[0]): Project 
       block('review', 'Review quote', 'review', 'back', 0.07, 0.57, 0.86, 0.055),
       block('requirements', 'PC requirements', 'requirements', 'back', 0.025, 0.645, 0.95, 0.15),
       block('features', 'Features & languages', 'features', 'back', 0.025, 0.795, 0.95, 0.06),
-      block('back-rating', 'Rating & descriptors', 'rating', 'back', 0.025, 0.87, 0.39, 0.105),
+      block('back-rating', 'Back rating', 'rating', 'back', 0.025, 0.87, 0.39, 0.105),
       block('back-publisher', 'Publisher & legal', 'publisher', 'back', 0.44, 0.87, 0.29, 0.105),
       block('qr', 'QR code', 'qr', 'back', 0.755, 0.875, 0.22, 0.095),
       block('front-rating', 'Front rating', 'rating', 'front', 0.035, 0.86, 0.12, 0.1),
@@ -79,10 +79,6 @@ export function createSteamProject(format: Format = workingFormats[0]): Project 
     { id: 'achievements', title: 'ACHIEVEMENTS', text: '★', detail: '' },
     { id: 'cloud', title: 'STEAM CLOUD', text: '☁', detail: '' },
     { id: 'languages', title: 'TEXT: SPANISH\nVOICES: MULTIPLE', text: 'CC', detail: '' },
-  ]
-  design.blocks.find((b) => b.id === 'back-rating')!.items = [
-    { id: 'violence', title: 'VIOLENCE', text: '', detail: '' },
-    { id: 'language', title: 'LANGUAGE', text: '', detail: '' },
   ]
   const timestamp = new Date().toISOString()
   const project: Project = { schemaVersion: SCHEMA_VERSION, id: crypto.randomUUID(), name: 'Steam cover', platform: 'pc', templateId: design.templateId, templateVersion: 1,
