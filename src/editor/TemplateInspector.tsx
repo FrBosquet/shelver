@@ -38,6 +38,11 @@ export function TemplateInspector({ onUploadAssets, onElementControlsHost, selec
   const selectedTemplateBlock = design.blocks.find((b) => b.id === selectedBlockId)
   const block = selectedTemplateBlock ?? design.blocks[0]
   const isEditing = Boolean(selectedElement || selectedTemplateBlock)
+  const visibilityToggle = (element: CoverDesign['extras'][number]['element']) => <label className="checkbox-field element-visibility"><input type="checkbox" role="switch" aria-label={`Show ${element.name}`} checked={element.visible} onChange={(event) => onChange((next) => {
+    const extra = next.extras.find((entry) => entry.element.id === element.id)
+    if (extra) extra.element.visible = event.target.checked
+    else next.overrides[element.id] = { ...next.overrides[element.id], hidden: !event.target.checked }
+  })} />Visible</label>
   const updateBlock = (update: (block: DesignBlock) => void, group?: string) => onChange((next) => { const target = next.blocks.find((b) => b.id === block.id); if (target) update(target) }, [], group)
   const shared = (key: keyof CoverDesign['shared'], label: string, rows = 2) => <label className="field" key={key}>{label}
     <textarea aria-label={label} rows={rows} value={design.shared[key]} onChange={(e) => onChange((next) => { next.shared[key] = e.target.value; if (key === 'rating') delete next.images.ratingLogo }, [], `shared:${key}`)} />
@@ -83,9 +88,11 @@ export function TemplateInspector({ onUploadAssets, onElementControlsHost, selec
     <fieldset>
     {tab === 'blocks' && <section aria-label="Edit template blocks">
       {!isEditing ? <div className="block-list" aria-label="Cover blocks">
-        <ul className="block-element-list">{project.composition.elements.map((element) => <li key={element.id}><button className="block-list-entry" onClick={() => onSelectBlock(element.id)}><span>{element.name}<small>{element.type}{!element.visible ? ' · Hidden' : ''}</small></span><span aria-hidden="true">→</span></button></li>)}</ul>
+        <p className="small muted">Hide any element when your artwork already includes it. Hidden elements stay here so you can show them again.</p>
+        <ul className="block-element-list">{project.composition.elements.map((element) => <li key={element.id}><button className="block-list-entry" onClick={() => onSelectBlock(element.id)}><span>{element.name}<small>{element.type}{!element.visible ? ' · Hidden' : ''}</small></span><span aria-hidden="true">→</span></button>{visibilityToggle(element)}</li>)}</ul>
       </div> : <>
       <button className="back-button" onClick={() => onSelectBlock('')}>← All blocks</button>
+      {selectedElement && visibilityToggle(selectedElement)}
       {selectedTemplateBlock && <h3>{selectedTemplateBlock.name}</h3>}
       <div ref={onElementControlsHost} className="element-controls-host" />
       {selectedTemplateBlock && <>

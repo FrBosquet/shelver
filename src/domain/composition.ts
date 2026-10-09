@@ -186,6 +186,7 @@ export function captureDesignEdits(project: Project, elements: Element[]): Proje
     const next = incoming.get(previous.id)
     const override: ElementOverride = design.overrides[previous.id] ?? {}
     if (!next) { override.hidden = true; design.overrides[previous.id] = override; continue }
+    if (next.visible !== previous.visible) override.hidden = !next.visible
     if (next.type !== previous.type || override.replacement || (next.type === 'qr' && previous.type === 'qr' && next.url !== previous.url) || (next.type === 'table' && previous.type === 'table' && JSON.stringify(next) !== JSON.stringify(previous)) || (next.type === 'image' && previous.type === 'image' && ['filters', 'fit', 'imageScale', 'offsetX', 'offsetY', 'focalX', 'focalY'].some((key) => next[key as keyof typeof next] !== previous[key as keyof typeof previous]))) {
       design.overrides[previous.id] = { replacement: structuredClone(next), placement: placementOf(next, format), hidden: !next.visible }
       continue

@@ -25,6 +25,19 @@ function artwork(): Asset {
 }
 
 describe('Steam composition', () => {
+  it('can hide and restore every default element without losing visibility on recomposition', () => {
+    const original = createSteamProject()
+    for (const target of original.composition.elements) {
+      const hidden = captureDesignEdits(original, original.composition.elements.map((element) => element.id === target.id ? { ...element, visible: false } : element))
+      const recomposed = composeDesign(hidden)
+      expect(recomposed.composition.elements.find((element) => element.id === target.id)?.visible).toBe(false)
+      expect(recomposed.composition.elements.filter((element) => !element.visible)).toHaveLength(1)
+      expect(validProject(recomposed)).toBe(true)
+      const restored = captureDesignEdits(recomposed, recomposed.composition.elements.map((element) => element.id === target.id ? { ...element, visible: true } : element))
+      expect(composeDesign(restored).composition.elements.find((element) => element.id === target.id)?.visible).toBe(true)
+    }
+  })
+
   it.each(workingFormats)('makes the front gradient editable at three quarters of the front width in $id', (format) => {
     const project = createSteamProject(format)
     const gradient = project.composition.elements.find((element) => element.id.endsWith(':platform:surface'))!
