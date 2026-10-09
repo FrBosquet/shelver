@@ -69,7 +69,7 @@ export function App() {
         <button className={`nav-item ${!activeProject ? 'active' : ''}`} onClick={() => setActiveId(null)}><span>▦</span> Cover library <span className="count">{projects.length}</span></button>
         <div className="sidebar-bottom"><span className="save-indicator" data-status={status} role="status"><span className="status-dot" />{statusText}</span><p>This browser · This device</p></div>
       </aside>
-      <main>
+      <main className={activeProject ? 'workspace-main' : undefined}>
         <header className="topbar"><span>Personal cover studio</span><div className="toolbar-group"><button disabled={!loaded || Boolean(packageBusy)} onClick={() => importInput.current?.click()}>{packageBusy === 'import' ? 'Importing…' : 'Import project'}</button><span className="badge">EARLY BUILD</span></div></header>
         <input ref={importInput} type="file" accept=".coverproject" hidden onChange={(event) => {
           const file = event.target.files?.[0]
@@ -87,11 +87,13 @@ export function App() {
             <button disabled={Boolean(packageBusy)} onClick={() => void exportProject()}>{packageBusy === 'export' ? 'Preparing backup…' : 'Export project'}</button>
           </div>
           <Suspense fallback={<p className="loading-message" role="status">Opening your workspace…</p>}>
+            <div className="editor-workspace">
             <Editor key={`${activeProject.id}:${history[activeProject.id]?.revision ?? 0}`} project={activeProject} assets={assets}
               initialZoom={zooms[activeProject.id]} onZoomChange={(zoom) => setZooms((current) => ({ ...current, [activeProject.id]: zoom }))}
               canUndo={history[activeProject.id]?.canUndo ?? false} canRedo={history[activeProject.id]?.canRedo ?? false}
               onUndo={() => store.undo(activeProject.id)} onRedo={() => store.redo(activeProject.id)}
               onChange={(elements, asset, group) => changeElements(activeProject.id, elements, asset, group)} />
+            </div>
           </Suspense>
         </> : <div className="library">
           <div className="page-heading"><div><p className="eyebrow">THE COLLECTION STARTS HERE</p><h1>Your games.<br />Your shelf.</h1><p className="intro">Turn your artwork into covers worth keeping.<br />A little space for your collection, made by you.</p></div><button className="primary new-cover" onClick={newProject}>+ New cover</button></div>
