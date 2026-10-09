@@ -56,7 +56,7 @@ export function composeDesign(project: Project): Project {
     const text = (key: string, value: string, role: TextRole, dx = 0, dy = 0, dw = w, dh = h, extra: Partial<Extract<Element, { type: 'text' }>> = {}) => {
       const style = design.styles.text[role]
       result.push({ ...base(key, `${block.name} · ${key}`, dx, dy, dw, dh), type: 'text', text: value,
-        fontFamily: design.styles.fonts[style.font], fontSize: style.size * typeScale, fill: colors[style.color], fontWeight: style.weight, textAlign: style.align, lineHeight: 1.15, styleRef: role, ...extra })
+        fontRole: style.font, fontFamily: design.styles.fonts[style.font], fontSize: style.size * typeScale, fill: colors[style.color], fontWeight: style.weight, textAlign: style.align, lineHeight: 1.15, styleRef: role, ...extra })
     }
     const picture = (key: string, assetKey: string, label: string, dx = 0, dy = 0, dw = w, dh = h, contain = false, defaultAssetId?: string) => {
       const image = design.images[assetKey] ?? (defaultAssetId ? { assetId: defaultAssetId, fit: 'contain' as const, focalX: 0.5, focalY: 0.5 } : undefined)
@@ -108,14 +108,14 @@ export function composeDesign(project: Project): Project {
         result.push({ ...base('table', block.name), type: 'table', contentFormat: 'markdown',
           cells: [[column(0, 'REQUISITOS MÍNIMOS (PC)'), column(1, 'REQUISITOS RECOMENDADOS (PC)')]],
           fill: colors.technical, textColor: colors.onTechnical,
-          fontSize: design.styles.text.technical.size * typeScale, styleRef: 'technical' })
+          fontRole: 'technical', fontFamily: design.styles.fonts.technical, fontSize: design.styles.text.technical.size * typeScale, styleRef: 'technical' })
         break
       }
       case 'features': {
         const items = block.items.length ? block.items : [{ id: 'player', title: 'SINGLE PLAYER', text: '', detail: '' }]
         result.push({ ...base('table', block.name), type: 'table', cells: [items.map((item) => item.title)],
           icons: [items.map((item) => tableIcons.find((icon) => icon.id === item.id)?.id ?? null)],
-          padding: 3, fill: colors.technical, textColor: colors.onTechnical, fontSize: design.styles.text.legal.size * typeScale, styleRef: 'legal' })
+          padding: 3, fill: colors.technical, textColor: colors.onTechnical, fontRole: 'technical', fontFamily: design.styles.fonts.technical, fontSize: design.styles.text.legal.size * typeScale, styleRef: 'legal' })
         break
       }
       case 'rating': {
@@ -173,13 +173,14 @@ export function composeDesign(project: Project): Project {
     let resolved = override.placement ? adaptElement(source, override.placement, format) : source
     if (resolved.type === 'text') resolved = { ...resolved,
       ...(!override.replacement && element.type === 'text' ? { fontSize: element.fontSize } : {}),
+      ...(override.fontRole ? { fontRole: override.fontRole } : override.fontFamily ? { fontRole: undefined } : {}),
       ...(override.text !== undefined ? { text: override.text } : {}), ...(override.fontFamily ? { fontFamily: override.fontFamily } : {}),
       ...(override.fontSize ? { fontSize: override.fontSize * (override.placement ? Math.min(format.height / override.placement.referenceHeight, format.panels.find((p) => p.id === override.placement!.panel)!.width / override.placement.referenceWidth) : 1) } : {}),
       ...(override.fill ? { fill: override.fill } : {}) }
     return { ...resolved, visible: !override.hidden }
   })
   elements.push(...design.extras.map(({ element, placement }) => adaptElement(element, placement, format)))
-  return { ...project, composition: { ...project.composition, background: colors.artwork, elements, design } }
+  return { ...project, composition: { ...project.composition, background: colors.artwork, elements: elements.map((element) => (element.type === 'text' || element.type === 'table') && element.fontRole ? { ...element, fontFamily: design.styles.fonts[element.fontRole] } : element), design } }
 }
 
 export function captureDesignEdits(project: Project, elements: Element[]): Project {
@@ -205,6 +206,7 @@ export function captureDesignEdits(project: Project, elements: Element[]): Proje
     if (next.type === 'text' && previous.type === 'text') {
       if (next.text !== previous.text) override.text = next.text
       if (next.fill !== previous.fill) override.fill = next.fill
+      if (next.fontRole !== previous.fontRole && next.fontRole) override.fontRole = next.fontRole
       if (next.fontFamily !== previous.fontFamily) override.fontFamily = next.fontFamily
       if (next.fontSize !== previous.fontSize) { override.fontSize = next.fontSize; override.placement ??= placementOf(next, format) }
     }

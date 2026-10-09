@@ -1,3 +1,5 @@
+import { ColorPicker } from './ColorPicker'
+import { TableIcon } from './TableIcon'
 import { TableIconPicker } from './TableIconPicker'
 import { qrMatrix } from '../domain/qr'
 import { tableIcons } from '../domain/tableIcons'
@@ -8,7 +10,7 @@ import { Canvas, FabricImage, Textbox } from 'fabric'
 import type { FabricObject } from 'fabric'
 import { createText } from '../domain/projects'
 import { composeDesign } from '../domain/composition'
-import type { Asset, Element, ImageFilters, Project } from '../domain/types'
+import type { Asset, Element, FontRole, ImageFilters, Project } from '../domain/types'
 import { readElement, renderElement } from './fabricAdapter'
 import { AssetPicker } from './AssetPicker'
 import { sharedLogos } from '../assets/logoLibrary'
@@ -68,6 +70,15 @@ export function Editor({ onUploadAssets, inspectorHost, selectedBlockId, onSelec
     changeHandler.current(elements, asset, group)
   }
 
+  const finishTransform = useEffectEvent((instance: Canvas, target: FabricObject) => {
+    const original = records.current.get(target)
+    if (original?.type === 'table' && (target.scaleX !== 1 || target.scaleY !== 1)) {
+      const next = readElement(target, original)
+      sync(instance)
+      void editElement(next, false).catch(() => setError('Unable to resize this table.'))
+    } else sync(instance)
+  })
+
   useEffect(() => {
     const node = canvasElement.current
     if (!node) return
@@ -96,7 +107,7 @@ export function Editor({ onUploadAssets, inspectorHost, selectedBlockId, onSelec
     instance.on('selection:created', updateSelection)
     instance.on('selection:updated', updateSelection)
     instance.on('selection:cleared', updateSelection)
-    instance.on('object:modified', () => sync(instance))
+    instance.on('object:modified', ({ target }) => finishTransform(instance, target))
     instance.on('text:changed', () => {
       updateSelection()
       sync(instance, undefined, `text:${elementRecords.get(instance.getActiveObject()!)?.id}`)
@@ -447,6 +458,9 @@ export function Editor({ onUploadAssets, inspectorHost, selectedBlockId, onSelec
     void editElement(next).catch(() => setError('Unable to apply image filters.'))
   }
 
+  const projectFonts = project.composition.design?.styles.fonts ?? { heading: 'Georgia', body: 'Arial', technical: 'Arial' }
+  const fontOptions = (['heading', 'body', 'technical'] as const).map((role) => <option key={role} value={role}>{role[0].toUpperCase() + role.slice(1)} · {projectFonts[role]}</option>)
+
   const elementControls = <section className="element-controls" aria-label="Selected element settings">
     <p className="eyebrow">SELECTED ELEMENT</p>
     <h3>{selection?.name ?? 'Make it yours.'}</h3>
@@ -469,13 +483,13 @@ export function Editor({ onUploadAssets, inspectorHost, selectedBlockId, onSelec
       {(['brightness', 'contrast', 'saturation'] as const).map((key) => <label className="field" key={key}>{key[0].toUpperCase() + key.slice(1)} · {Math.round((selection.filters?.[key] ?? 0) * 100)}%<input aria-label={`Image ${key}`} type="range" min="-1" max="1" step="0.01" value={selection.filters?.[key] ?? 0} onChange={(event) => changeImageFilter({ [key]: Number(event.target.value) })} /></label>)}
       {(['grayscale', 'invert'] as const).map((key) => <label className="checkbox-field" key={key}><input type="checkbox" checked={selection.filters?.[key] ?? false} onChange={(event) => changeImageFilter({ [key]: event.target.checked })} />{key === 'grayscale' ? 'Grayscale' : 'Invert colors'}</label>)}
       <label className="checkbox-field"><input type="checkbox" checked={Boolean(selection.filters?.tint)} onChange={(event) => changeImageFilter({ tint: event.target.checked ? '#26322d' : undefined })} />Use a single color</label>
-      {selection.filters?.tint && <label className="field">Image color<input aria-label="Image color" type="color" value={selection.filters.tint} onChange={(event) => changeImageFilter({ tint: event.target.value })} /></label>}
+      {selection.filters?.tint && <div className="field">Image color<ColorPicker label="Image color" colors={project.composition.design?.styles.colors} value={selection.filters.tint} onChange={(color) => changeImageFilter({ tint: color })} /></div>}
       <label className="field">Image blur · {Math.round((selection.filters?.blur ?? 0) * 100)}%<input aria-label="Image blur" type="range" min="0" max="1" step="0.01" value={selection.filters?.blur ?? 0} onChange={(event) => changeImageFilter({ blur: Number(event.target.value) })} /></label>
       <label className="field">Backdrop blur · {selection.filters?.backdropBlur ?? 0} px<input aria-label="Backdrop blur" type="range" min="0" max="100" step="1" value={selection.filters?.backdropBlur ?? 0} onChange={(event) => changeImageFilter({ backdropBlur: Number(event.target.value) })} /></label>
       <p className="small muted">Backdrop blur softens layers behind the image frame. It shows through transparent areas.</p>
       <label className="checkbox-field"><input type="checkbox" checked={Boolean(selection.filters?.shadow)} onChange={(event) => changeImageFilter({ shadow: event.target.checked ? { color: '#000000', opacity: 0.6, blur: 12, offsetX: 0, offsetY: 0 } : undefined })} />Contour shadow</label>
       {selection.filters?.shadow && <>
-        <label className="field">Shadow color<input aria-label="Shadow color" type="color" value={selection.filters.shadow.color} onChange={(event) => changeImageFilter({ shadow: { ...selection.filters!.shadow!, color: event.target.value } })} /></label>
+        <div className="field">Shadow color<ColorPicker label="Shadow color" colors={project.composition.design?.styles.colors} value={selection.filters.shadow.color} onChange={(color) => changeImageFilter({ shadow: { ...selection.filters!.shadow!, color } })} /></div>
         <label className="field">Shadow opacity<input aria-label="Shadow opacity" type="range" min="0" max="1" step="0.01" value={selection.filters.shadow.opacity} onChange={(event) => changeImageFilter({ shadow: { ...selection.filters!.shadow!, opacity: Number(event.target.value) } })} /></label>
         <label className="field">Shadow blur · {selection.filters.shadow.blur} px<input aria-label="Shadow blur" type="range" min="0" max="100" step="1" value={selection.filters.shadow.blur} onChange={(event) => changeImageFilter({ shadow: { ...selection.filters!.shadow!, blur: Number(event.target.value) } })} /></label>
         <div className="form-row">{(['offsetX', 'offsetY'] as const).map((key) => <label className="field" key={key}>Shadow {key === 'offsetX' ? 'X' : 'Y'}<input aria-label={`Shadow ${key}`} type="number" min="-200" max="200" value={selection.filters!.shadow![key]} onChange={(event) => { const value = event.target.valueAsNumber; if (Number.isFinite(value) && Math.abs(value) <= 200) changeImageFilter({ shadow: { ...selection.filters!.shadow!, [key]: value } }) }} /></label>)}</div>
@@ -488,14 +502,23 @@ export function Editor({ onUploadAssets, inspectorHost, selectedBlockId, onSelec
       <textarea aria-label="Selected text" rows={7} value={selectedText} onChange={(event) => editText(event.target.value)} />
     </label> : <p className="muted">{'Edit the selected element’s properties.'}</p>}
     {selection?.type === 'text' && selectedText !== null && <div className="selection-styles">
-      <label className="field">Individual text color<input type="color" aria-label="Individual text color" value={selection.fill.startsWith('#') ? selection.fill : '#172129'} onChange={(e) => changeTextStyle('fill', e.target.value)} /></label>
-      <label className="field">Individual font<select aria-label="Individual font" value={selection.fontFamily} onChange={(e) => changeTextStyle('fontFamily', e.target.value)}>{['Georgia', 'Arial', 'Verdana', 'Times New Roman', 'Courier New'].map((font) => <option key={font}>{font}</option>)}</select></label>
+      <div className="field">Individual text color<ColorPicker label="Individual text color" colors={project.composition.design?.styles.colors} value={selection.fill.startsWith('#') ? selection.fill : '#172129'} onChange={(color) => changeTextStyle('fill', color)} /></div>
+      <label className="field">Font<select aria-label="Individual font" value={selection.fontRole ?? 'body'} onChange={(event) => { const fontRole = event.target.value as FontRole; void editElement({ ...selection, fontRole, fontFamily: projectFonts[fontRole] }) }}>{fontOptions}</select></label>
       {project.composition.design && selection.blockId && <p className="small muted">Shared style: {selection.styleRef}. Edits here override this element.</p>}
     </div>}
-    {selection?.type === 'shape' && <label className="field">Box color<input type="color" value={selection.fill} onChange={(event) => void editElement({ ...selection, fill: event.target.value })} /></label>}
+    {selection?.type === 'shape' && <div className="field">Box color<ColorPicker label="Box color" colors={project.composition.design?.styles.colors} value={selection.fill} onChange={(color) => void editElement({ ...selection, fill: color })} /></div>}
     {selection?.type === 'qr' && <label className="field">URL<input aria-label="QR URL" type="url" maxLength={2000} value={selection.url} placeholder="https://example.com" onChange={(event) => void editElement({ ...selection, url: event.target.value })} /><span className="small muted">The QR updates automatically. Enter a complete URL, including https://.</span>{!qrMatrix(selection.url) && <span role="status" className="error">Enter a valid HTTP or HTTPS URL (maximum 2,000 characters).</span>}</label>}
     {selection?.type === 'rating' && <label className="field">PEGI rating<select value={selection.rating} onChange={(event) => void editElement({ ...selection, rating: event.target.value as typeof selection.rating })}>{['3', '7', '12', '16', '18'].map((rating) => <option key={rating}>{rating}</option>)}</select><span className="small muted">Editable rating placeholder. Use an image for an official badge.</span></label>}
     {selection?.type === 'table' && <div className="selection-styles">
+      <div className="form-row">
+        <div className="field">Background color<ColorPicker label="Table background color" colors={project.composition.design?.styles.colors} value={selection.fill} onChange={(color) => void editElement({ ...selection, fill: color })} /></div>
+        <div className="field">Text & icon color<ColorPicker label="Table text color" colors={project.composition.design?.styles.colors} value={selection.textColor} onChange={(color) => void editElement({ ...selection, textColor: color })} /></div>
+      </div>
+      <label className="field">Font<select aria-label="Table font" value={selection.fontRole ?? 'technical'} onChange={(event) => { const fontRole = event.target.value as FontRole; void editElement({ ...selection, fontRole, fontFamily: projectFonts[fontRole] }) }}>{fontOptions}</select></label>
+      <label className="field">Font size (px)<input aria-label="Table font size" type="number" min="1" max="200" step="1" value={selection.fontSize} onChange={(event) => { const fontSize = event.target.valueAsNumber; if (fontSize > 0 && fontSize <= 200) void editElement({ ...selection, fontSize }) }} /></label>
+      <label className="field">Text alignment<select aria-label="Table text alignment" value={selection.textAlign ?? 'auto'} onChange={(event) => void editElement({ ...selection, textAlign: event.target.value === 'auto' ? undefined : event.target.value as 'left' | 'center' | 'right' })}><option value="auto">Automatic</option><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+      <label className="field">Vertical alignment<select aria-label="Table vertical alignment" value={selection.verticalAlign ?? 'top'} onChange={(event) => void editElement({ ...selection, verticalAlign: event.target.value as 'top' | 'middle' | 'bottom' })}><option value="top">Top</option><option value="middle">Middle</option><option value="bottom">Bottom</option></select></label>
+      <div className="form-row">{(['width', 'height'] as const).map((dimension) => <label className="field" key={dimension}>{dimension === 'width' ? 'Width' : 'Height'} (px)<input aria-label={`Table ${dimension}`} type="number" min="1" max="16000" value={Math.round(selection[dimension])} onChange={(event) => { const value = event.target.valueAsNumber; if (value > 0 && value <= 16000) void editElement({ ...selection, [dimension]: value, scaleX: 1, scaleY: 1 }, false) }} /></label>)}</div>
       <label className="field">Padding (px)<input aria-label="Table padding" type="number" min="0" max="1000" step="1" value={selection.padding ?? 8} onChange={(event) => { const padding = event.target.valueAsNumber; if (Number.isFinite(padding) && padding >= 0 && padding <= 1000) void editElement({ ...selection, padding }) }} /></label>
       <label className="checkbox-field"><input type="checkbox" checked={selection.contentFormat === 'markdown'} onChange={(event) => void editElement({ ...selection, contentFormat: event.target.checked ? 'markdown' : undefined })} />Markdown content</label>
       <p className="small muted">{selection.contentFormat === 'markdown' ? 'Use ### for headings, - for bullets, and **bold** for labels.' : 'Edit each cell. Add rows and columns to expand the table.'}</p>
@@ -504,7 +527,7 @@ export function Editor({ onUploadAssets, inspectorHost, selectedBlockId, onSelec
         <div className="table-row-heading"><strong>Row {r + 1}</strong><button disabled={busy || selection.cells.length <= 1} aria-label={`Delete row ${r + 1}`} onClick={() => void editElement({ ...selection, cells: selection.cells.filter((_, index) => index !== r), icons: selection.icons?.filter((_, index) => index !== r) })}>Delete row</button></div>
         <div className="table-cell-row">{row.map((cell, c) => <div className="table-cell-editor" key={c}>
           <div className="table-cell-heading"><label htmlFor={`cell-${selection.id}-${r}-${c}`}>Column {c + 1}</label><button className="cell-icon-trigger" disabled={busy} aria-label={`Choose icon for row ${r + 1}, column ${c + 1}`} title={tableIcons.find((icon) => icon.id === selection.icons?.[r]?.[c])?.label ?? 'Choose icon'} onClick={() => setIconCell({ id: selection.id, row: r, column: c })}>
-            <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={tableIcons.find((icon) => icon.id === selection.icons?.[r]?.[c])?.path ?? 'M4 4h16v16H4zM12 8v8M8 12h8'} /></svg><span>Icon</span>
+            <TableIcon id={selection.icons?.[r]?.[c]} size={18} /><span>Icon</span>
           </button></div>
           <textarea id={`cell-${selection.id}-${r}-${c}`} aria-label={`Row ${r + 1}, column ${c + 1}`} rows={selection.contentFormat === 'markdown' ? 9 : 2} value={cell} onChange={(event) => void editElement({ ...selection, cells: selection.cells.map((values, ri) => values.map((value, ci) => ri === r && ci === c ? event.target.value : value)) })} />
         </div>)}</div>

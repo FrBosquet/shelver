@@ -49,3 +49,19 @@ describe('Steam requirements table', () => {
     expect(table.fontSize).toBe(14)
   })
 })
+
+it('keeps chosen table and text fonts linked to the project font roles', () => {
+  const project = createSteamProject()
+  const table = requirements(project)
+  const title = project.composition.elements.find((element) => element.type === 'text' && element.blockId === 'front-title')!
+  if (title.type !== 'text') throw new Error('Expected title')
+  const edited = captureDesignEdits(project, project.composition.elements.map((element) => element.id === table.id
+    ? { ...table, fontRole: 'heading', fontFamily: 'Georgia' }
+    : element.id === title.id ? { ...title, fontRole: 'technical', fontFamily: 'Arial' } : element))
+  edited.composition.design!.styles.fonts.heading = 'Verdana'
+  edited.composition.design!.styles.fonts.technical = 'Courier New'
+  const resolved = composeDesign(edited)
+  expect(requirements(resolved)).toMatchObject({ fontRole: 'heading', fontFamily: 'Verdana' })
+  expect(resolved.composition.elements.find((element) => element.id === title.id)).toMatchObject({ fontRole: 'technical', fontFamily: 'Courier New' })
+  expect(validProject(resolved)).toBe(true)
+})

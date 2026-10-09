@@ -1,8 +1,8 @@
 import { qrMatrix } from '../domain/qr'
-import { tableIcons } from '../domain/tableIcons'
+import { tableIcons, tableIconSvg } from '../domain/tableIcons'
 import { tableMarkdown } from './tableMarkdown'
 import { pegiColor, pegiLayout } from '../domain/pegi'
-import { Canvas2dFilterBackend, filters, FabricImage, Gradient, Group, Path, Pattern, Rect, Shadow, Textbox } from 'fabric'
+import { Canvas2dFilterBackend, filters, FabricImage, Gradient, Group, Path, loadSVGFromString, util, Pattern, Rect, Shadow, Textbox } from 'fabric'
 import type { FabricObject } from 'fabric'
 import type { Asset, Element, ImageFilters } from '../domain/types'
 import { attachBackdropBlur } from './backdropBlur'
@@ -21,6 +21,7 @@ export function imageFilters(settings: ImageFilters = {}) {
 }
 
 export async function renderElement(element: Element, assets: Record<string, Asset>, signal: AbortSignal, editableReplacement = false): Promise<FabricObject> {
+  if (element.type === 'table') element = { ...element, width: element.width * element.scaleX, height: element.height * element.scaleY, scaleX: 1, scaleY: 1 }
   let object: FabricObject
   if (element.type === 'text') {
     object = new Textbox(element.text, { width: element.width, fontFamily: element.fontFamily, fontSize: element.fontSize, fill: element.fill,
@@ -31,24 +32,55 @@ export async function renderElement(element: Element, assets: Record<string, Ass
     const rows = element.cells.length, columns = element.cells[0].length
     const width = element.width / columns, height = element.height / rows
     const padding = element.padding ?? 8
+    const verticalAlign = element.verticalAlign ?? 'top'
+    const contentTop = (cellHeight: number, contentHeight: number) => {
+      const free = Math.max(0, cellHeight - padding * 2 - contentHeight)
+      return padding + (verticalAlign === 'middle' ? free / 2 : verticalAlign === 'bottom' ? free : 0)
+    }
     const cells: FabricObject[] = []
-    element.cells.forEach((row, r) => row.forEach((cell, c) => {
-      cells.push(new Rect({ originX: 'left', originY: 'top', left: c * width, top: r * height, width, height, fill: element.fill, stroke: element.textColor, strokeWidth: 1 }))
+    const layouts: { row: number; column: number; frame: Rect; text: Textbox; icon?: FabricObject }[] = []
+    for (const [r, row] of element.cells.entries()) for (const [c, cell] of row.entries()) {
+      const frame = new Rect({ originX: 'left', originY: 'top', left: c * width, top: r * height, width, height, fill: element.fill, stroke: element.textColor, strokeWidth: 1 })
+      cells.push(frame)
       const icon = tableIcons.find((entry) => entry.id === element.icons?.[r]?.[c])
-      const iconSize = Math.max(1, Math.min(24, height * 0.4, width - padding * 2))
+      const iconSize = Math.max(1, Math.min(24, width - padding * 2))
       let iconOffset = 0
+      let artwork: FabricObject | undefined
       if (icon) {
-        const path = new Path(icon.path, { fill: 'transparent', stroke: element.textColor, strokeWidth: 1.8, strokeLineCap: 'round', strokeLineJoin: 'round' })
-        path.scaleToHeight(iconSize)
-        if (path.getScaledWidth() > Math.max(1, width - padding * 2)) path.scaleToWidth(Math.max(1, width - padding * 2))
-        path.set({ originX: 'center', originY: 'top', left: c * width + width / 2, top: r * height + padding + (iconSize - path.getScaledHeight()) / 2 })
+        const svg = await loadSVGFromString(tableIconSvg(icon, element.textColor), undefined, { signal })
+        artwork = util.groupSVGElements(svg.objects.filter((item): item is FabricObject => item !== null), svg.options)
+        artwork.set({ originX: 'left', originY: 'top', left: c * width + (width - iconSize) / 2, top: r * height + padding, scaleX: iconSize / 24, scaleY: iconSize / 24 })
         iconOffset = iconSize + 8
-        cells.push(path)
+        cells.push(artwork)
       }
       const markdown = element.contentFormat === 'markdown' ? tableMarkdown(cell) : { text: cell, styles: {} }
-      cells.push(new Textbox(markdown.text, { originX: 'left', originY: 'top', styles: markdown.styles, lineHeight: 1.15, left: c * width + padding, top: r * height + padding + iconOffset, textAlign: icon ? 'center' : 'left', width: Math.max(1, width - padding * 2), fontSize: element.fontSize, fontFamily: 'Arial', fill: element.textColor }))
-    }))
-    object = new Group(cells)
+      const text = new Textbox(markdown.text, { originX: 'left', originY: 'top', styles: markdown.styles, lineHeight: 1.15, left: c * width + padding, top: r * height + padding + iconOffset, textAlign: element.textAlign ?? (icon ? 'center' : 'left'), width: Math.max(1, width - padding * 2), fontSize: element.fontSize, fontFamily: element.fontFamily ?? 'Arial', fill: element.textColor })
+      const top = r * height + contentTop(height, iconOffset + text.height)
+      text.set({ top: top + iconOffset })
+      artwork?.set({ top })
+      cells.push(text)
+      layouts.push({ row: r, column: c, frame, text, icon: artwork })
+    }
+    const group = new Group(cells)
+    // Resize the frame during a drag while counteracting group scale on content.
+    group.on('scaling', () => {
+      const sx = group.scaleX, sy = group.scaleY
+      if (sx <= 0 || sy <= 0) return
+      const cellWidth = group.width * sx / columns, cellHeight = group.height * sy / rows
+      for (const layout of layouts) {
+        const left = layout.column * cellWidth, top = layout.row * cellHeight
+        layout.frame.set({ left: left / sx - group.width / 2, top: top / sy - group.height / 2, width: cellWidth / sx, height: cellHeight / sy })
+        const size = Math.max(1, Math.min(24, cellWidth - padding * 2))
+        layout.text.set({ width: Math.max(1, cellWidth - padding * 2), scaleX: 1 / sx, scaleY: 1 / sy })
+        const offset = layout.icon ? size + 8 : 0
+        const contentY = top + contentTop(cellHeight, offset + layout.text.height)
+        layout.text.set({ left: (left + padding) / sx - group.width / 2, top: (contentY + offset) / sy - group.height / 2 })
+        layout.icon?.set({ left: (left + (cellWidth - size) / 2) / sx - group.width / 2, top: contentY / sy - group.height / 2,
+          scaleX: size / 24 / sx, scaleY: size / 24 / sy })
+      }
+      group.dirty = true
+    })
+    object = group
   } else if (element.type === 'qr') {
     const matrix = qrMatrix(element.url)
     const size = Math.min(element.width, element.height)
@@ -108,6 +140,7 @@ export async function renderElement(element: Element, assets: Record<string, Ass
     ...(element.type !== 'text' ? { height: element.height } : {}),
     scaleX: element.scaleX, scaleY: element.scaleY, angle: element.rotation,
     opacity: element.opacity, visible: element.visible,
+    ...(element.type === 'table' ? { lockScalingFlip: true } : {}),
     selectable: !element.locked, evented: !element.locked,
     cornerColor: '#c2e3b5', borderColor: '#c2e3b5', cornerStyle: 'circle', transparentCorners: false,
   })
@@ -141,6 +174,7 @@ export function readElement(object: FabricObject, original: Element): Element {
     scaleX: object.scaleX, scaleY: object.scaleY, rotation: object.angle,
     opacity: object.opacity, visible: object.visible,
   }
+  if (original.type === 'table') return { ...base, width: object.width * object.scaleX, height: object.height * object.scaleY, scaleX: 1, scaleY: 1 }
   if (original.type === 'text' && object instanceof Textbox) {
     return { ...base, height: original.blockId ? original.height : base.height, type: 'text', text: object.text, fontFamily: object.fontFamily, fontSize: object.fontSize, fill: String(object.fill) }
   }

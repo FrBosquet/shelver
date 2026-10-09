@@ -1,8 +1,8 @@
-import { Canvas2dFilterBackend, Group, Path } from 'fabric'
+import { Canvas2dFilterBackend, Group, Path, Rect } from 'fabric'
 import { describe, expect, it } from 'vitest'
 import type { ShapeElement } from '../domain/types'
 import { qrMatrix } from '../domain/qr'
-import { renderElement, imageFilters } from './fabricAdapter'
+import { renderElement, imageFilters, readElement } from './fabricAdapter'
 
 const shape: ShapeElement = {
   id: 'shape', name: 'Shape', type: 'shape', fill: '#ffffff',
@@ -101,4 +101,10 @@ describe('QR rendering', () => {
     expect(backgroundBounds.top + backgroundBounds.height - symbolBounds.top - symbolBounds.height).toBeCloseTo(margin)
     object.dispose()
   })
+})
+
+ it('stores resized table dimensions without scaling its typography, icons or padding', () => {
+  const table = { ...shape, type: 'table' as const, width: 400, height: 80, cells: [['First', 'Second']], icons: [['player', 'controller']] as ('player' | 'controller')[][], fontSize: 14, textColor: '#000000', padding: 8 }
+  const object = new Rect({ originX: 'left', originY: 'top', left: 40, top: 50, width: 400, height: 80, scaleX: 1.5, scaleY: 2.5 })
+  expect(readElement(object, table)).toMatchObject({ width: 600, height: 200, scaleX: 1, scaleY: 1, fontSize: 14, padding: 8, icons: table.icons, x: 40, y: 50 })
 })

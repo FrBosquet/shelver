@@ -45,6 +45,7 @@ function validElement(element: unknown): element is Element {
   if (typeof element.visible !== 'boolean' || typeof element.locked !== 'boolean') return false
   if (element.blockId !== undefined && typeof element.blockId !== 'string') return false
   if (element.styleRef !== undefined && typeof element.styleRef !== 'string') return false
+  if (element.fontRole !== undefined && !['heading', 'body', 'technical'].includes(String(element.fontRole))) return false
   if (element.typeMemory !== undefined && (!isRecord(element.typeMemory) || !Object.entries(element.typeMemory).every(([type, snapshot]) => ['text', 'image', 'shape', 'table', 'rating', 'qr'].includes(type) && isRecord(snapshot) && snapshot.type === type && snapshot.typeMemory === undefined && validElement(snapshot)))) return false
   if (element.type === 'text') return ['text', 'fontFamily', 'fill'].every((key) => typeof element[key] === 'string') && finite(element.fontSize) && element.fontSize > 0
     && (element.fontWeight === undefined || ['normal', 'bold'].includes(String(element.fontWeight)))
@@ -68,7 +69,10 @@ function validElement(element: unknown): element is Element {
     && ['focalX', 'focalY'].every((key) => element[key] === undefined || finite(element[key]) && element[key] >= 0 && element[key] <= 1)
   if (element.type === 'qr') return typeof element.url === 'string' && element.url.length <= 2000
   if (element.type === 'rating') return ['3', '7', '12', '16', '18'].includes(String(element.rating))
-  if (element.type === 'table') return (element.padding === undefined || finite(element.padding) && element.padding >= 0 && element.padding <= 1000) && (element.contentFormat === undefined || element.contentFormat === 'markdown') && Array.isArray(element.cells) && element.cells.length > 0 && element.cells.length <= 20
+  if (element.type === 'table') return (element.verticalAlign === undefined || ['top', 'middle', 'bottom'].includes(String(element.verticalAlign)))
+    && (element.fontFamily === undefined || typeof element.fontFamily === 'string' && element.fontFamily.length > 0)
+    && (element.textAlign === undefined || ['left', 'center', 'right'].includes(String(element.textAlign)))
+    && (element.padding === undefined || finite(element.padding) && element.padding >= 0 && element.padding <= 1000) && (element.contentFormat === undefined || element.contentFormat === 'markdown') && Array.isArray(element.cells) && element.cells.length > 0 && element.cells.length <= 20
     && element.cells.every((row) => Array.isArray(row) && row.length > 0 && row.length <= 10 && row.length === (element.cells as unknown[][])[0].length && row.every((cell) => typeof cell === 'string'))
     && (element.icons === undefined || Array.isArray(element.icons) && element.icons.length === element.cells.length && element.icons.every((row, r) => Array.isArray(row) && row.length === (element.cells as unknown[][])[r].length && row.every((icon) => icon === null || tableIcons.some((entry) => entry.id === icon))))
     && typeof element.fill === 'string' && typeof element.textColor === 'string' && finite(element.fontSize) && element.fontSize > 0
@@ -111,6 +115,7 @@ export function validDesign(value: unknown): value is CoverDesign {
   })) return false
   if (!isRecord(value.images) || !Object.values(value.images).every((image) => isRecord(image) && typeof image.assetId === 'string' && Boolean(image.assetId) && ['cover', 'contain'].includes(String(image.fit)) && ['focalX', 'focalY'].every((key) => finite(image[key]) && image[key] >= 0 && image[key] <= 1))) return false
   if (!isRecord(value.overrides) || !Object.values(value.overrides).every((override) => isRecord(override)
+    && (override.fontRole === undefined || ['heading', 'body', 'technical'].includes(String(override.fontRole)))
     && (override.replacement === undefined || validElement(override.replacement))
     && (override.placement === undefined || validPlacement(override.placement))
     && ['text', 'fill', 'fontFamily'].every((key) => override[key] === undefined || typeof override[key] === 'string')

@@ -34,6 +34,7 @@ type BaseElement = {
 }
 export type TextElement = BaseElement & {
   type: 'text'
+  fontRole?: FontRole
   text: string
   fontFamily: string
   fontSize: number
@@ -46,7 +47,7 @@ export type ImageShadow = { color: string; blur: number; offsetX: number; offset
 export type ImageFilters = { blur?: number; backdropBlur?: number; shadow?: ImageShadow; brightness?: number; contrast?: number; saturation?: number; grayscale?: boolean; invert?: boolean; tint?: string }
 export type ImageElement = BaseElement & { type: 'image'; assetId: string; filters?: ImageFilters; fit?: 'cover' | 'contain' | 'repeat'; imageScale?: number; offsetX?: number; offsetY?: number; focalX?: number; focalY?: number }
 export type ShapeElement = BaseElement & { type: 'shape'; fill: string; gradientTo?: string }
-export type TableElement = BaseElement & { type: 'table'; icons?: (TableIconId | null)[][]; padding?: number; contentFormat?: 'markdown'; cells: string[][]; fill: string; textColor: string; fontSize: number }
+export type TableElement = BaseElement & { type: 'table'; verticalAlign?: 'top' | 'middle' | 'bottom'; fontRole?: FontRole; textAlign?: 'left' | 'center' | 'right'; fontFamily?: string; icons?: (TableIconId | null)[][]; padding?: number; contentFormat?: 'markdown'; cells: string[][]; fill: string; textColor: string; fontSize: number }
 export type RatingElement = BaseElement & { type: 'rating'; rating: '3' | '7' | '12' | '16' | '18' }
 export type QrElement = BaseElement & { type: 'qr'; url: string }
 export type Element = QrElement | TextElement | ImageElement | ShapeElement | TableElement | RatingElement
@@ -106,7 +107,7 @@ export type Placement = {
   panel: Panel['id']; referenceWidth: number; referenceHeight: number; referenceX: number
   x: number; y: number; width: number; height: number; scaleX: number; scaleY: number; rotation: number
 }
-export type ElementOverride = { replacement?: Element; placement?: Placement; text?: string; fill?: string; fontFamily?: string; fontSize?: number; hidden?: boolean }
+export type ElementOverride = { fontRole?: FontRole; replacement?: Element; placement?: Placement; text?: string; fill?: string; fontFamily?: string; fontSize?: number; hidden?: boolean }
 export type CoverDesign = {
   version: 1; instanceId: string; templateId: 'steam-editorial-v1'; templateName: string
   styles: StyleSheet

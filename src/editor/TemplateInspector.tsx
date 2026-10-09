@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { ColorPicker } from './ColorPicker'
+import { colorLabels } from '../domain/colorLabels'
 import { AssetPicker } from './AssetPicker'
 import type { Asset, ColorRole, CoverDesign, DesignBlock, FontRole, Format, Project, TextRole } from '../domain/types'
 import { workingFormat, workingFormats } from '../domain/steamTemplate'
@@ -19,7 +21,7 @@ type Props = {
   onInteractionEnd: () => void
 }
 
-const colorLabels: Record<ColorRole, string> = { brand: 'Steam header', spine: 'Spine background', onSpine: 'Spine text', technical: 'Technical footer', onTechnical: 'Text on dark', artwork: 'Artwork fallback', onArtwork: 'Text on artwork', rating: 'Rating badge' }
+
 const fontChoices = ['Georgia', 'Arial', 'Verdana', 'Times New Roman', 'Courier New']
 
 export function TemplateInspector({ onUploadAssets, onElementControlsHost, selectionRequest, selectedBlockId, onSelectBlock, project, assets, onChange, onFormat, onInteractionStart, onInteractionEnd }: Props) {
@@ -107,11 +109,11 @@ export function TemplateInspector({ onUploadAssets, onElementControlsHost, selec
     </section>}
     {tab === 'styles' && <section aria-label="Shared styles">
       <p className="small muted">Changes apply to all template elements referencing the style.</p>
-      <div className="color-grid">{(Object.keys(colorLabels) as ColorRole[]).map((key) => <label className="field color-field" key={key}>{colorLabels[key]}<input aria-label={colorLabels[key]} type="color" value={design.styles.colors[key]} onChange={(e) => { setColorDrafts((current) => ({ ...current, [key]: undefined })); onChange((next) => { next.styles.colors[key] = e.target.value }, [], `color:${key}`) }} /><input aria-label={`${colorLabels[key]} hex`} value={colorDrafts[key] ?? design.styles.colors[key]} maxLength={7} onChange={(e) => {
+      <div className="color-grid">{(Object.keys(colorLabels) as ColorRole[]).map((key) => <div className="field color-field" key={key}>{colorLabels[key]}<ColorPicker label={colorLabels[key]} value={design.styles.colors[key]} onChange={(color) => { setColorDrafts((current) => ({ ...current, [key]: undefined })); onChange((next) => { next.styles.colors[key] = color }, [], `color:${key}`) }} /><input aria-label={`${colorLabels[key]} hex`} value={colorDrafts[key] ?? design.styles.colors[key]} maxLength={7} onChange={(e) => {
         const color = e.target.value
         if (/^#[0-9a-f]{6}$/i.test(color)) { setColorDrafts((current) => ({ ...current, [key]: undefined })); onChange((next) => { next.styles.colors[key] = color }, [], `color:${key}`) }
         else setColorDrafts((current) => ({ ...current, [key]: color }))
-      }} onBlur={() => setColorDrafts((current) => ({ ...current, [key]: undefined }))} /></label>)}</div>
+      }} onBlur={() => setColorDrafts((current) => ({ ...current, [key]: undefined }))} /></div>)}</div>
       {(Object.keys(design.styles.fonts) as FontRole[]).map((key) => <label className="field" key={key}>{key} font<select aria-label={`${key} font`} value={design.styles.fonts[key]} onChange={(e) => onChange((next) => { next.styles.fonts[key] = e.target.value })}>{fontChoices.map((font) => <option key={font}>{font}</option>)}</select></label>)}
       <h3>Text styles</h3><label className="field">Shared text style<select aria-label="Shared text style" value={role} onChange={(e) => setRole(e.target.value as TextRole)}>{(Object.keys(design.styles.text) as TextRole[]).map((key) => <option key={key}>{key}</option>)}</select></label>
       <div className="form-row"><label className="field">Font role<select aria-label="Text style font role" value={design.styles.text[role].font} onChange={(e) => onChange((next) => { next.styles.text[role].font = e.target.value as FontRole })}>{(Object.keys(design.styles.fonts) as FontRole[]).map((key) => <option key={key}>{key}</option>)}</select></label>
