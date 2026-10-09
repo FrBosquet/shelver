@@ -67,7 +67,7 @@ export function composeDesign(project: Project): Project {
         picture('art', block.panel === 'front' ? 'frontArt' : 'backArt', block.name)
         break
       case 'platform':
-        shape('surface', 'brand', 0, 0, w * 0.4, h, `${colors.brand}00`, false)
+        shape('surface', 'brand', 0, 0, w * 0.5, h, `${colors.brand}00`, false)
         picture('logo', 'platformLogo', 'Steam logo', w * 0.04, h * 0.15, w * 0.35, h * 0.7, true, steamLogoFor(colors.brand))
         break
       case 'title':
