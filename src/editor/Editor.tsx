@@ -154,6 +154,22 @@ export function Editor({ onUploadAssets, inspectorHost, selectedBlockId, onSelec
   }, [selectedBlockId, ready])
 
   const deleteSelection = useEffectEvent(() => removeSelected())
+  const moveSelection = useEffectEvent((key: string, step: number) => {
+    const instance = canvas.current
+    const active = instance?.getActiveObject()
+    if (!instance || !active) return false
+    const horizontal = key === 'ArrowLeft' || key === 'ArrowRight'
+    if (instance.getActiveObjects().some((object) => horizontal ? object.lockMovementX : object.lockMovementY)) return false
+    const delta = key === 'ArrowLeft' || key === 'ArrowUp' ? -step : step
+    active.set(horizontal ? { left: active.left + delta } : { top: active.top + delta })
+    active.setCoords()
+    for (const object of instance.getActiveObjects()) object.setCoords()
+    const original = records.current.get(active)
+    if (original) setSelection(readElement(active, original))
+    instance.requestRenderAll()
+    sync(instance)
+    return true
+  })
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -161,6 +177,10 @@ export function Editor({ onUploadAssets, inspectorHost, selectedBlockId, onSelec
       if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.closest('input, textarea, select'))) return
       const active = canvas.current?.getActiveObject()
       if (active instanceof Textbox && active.isEditing) return
+      if (!event.metaKey && !event.ctrlKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) {
+        if (moveSelection(event.key, event.shiftKey ? 10 : 1)) event.preventDefault()
+        return
+      }
       if ((event.key === 'Delete' || event.key === 'Backspace') && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
         if (!active || records.current.get(active)?.blockId) return
         event.preventDefault()
@@ -610,7 +630,7 @@ export function Editor({ onUploadAssets, inspectorHost, selectedBlockId, onSelec
               {format.panels.slice(1).map((panel) => <span className="panel-guide" key={panel.id} style={{ left: `${panel.x / format.width * 100}%` }} />)}
             </div>
           </div>
-          <p className="canvas-note">{project.composition.design ? 'Drag to position · Use handles to resize and rotate · Select a template element to edit its content in the sidebar' : 'Drag to position · Use handles to resize and rotate · Double-click text to edit'}</p>
+          <p className="canvas-note">Arrow keys to move 1 px · Shift + arrow keys to move 10 px · {project.composition.design ? 'Drag to position · Use handles to resize and rotate · Select a template element to edit its content in the sidebar' : 'Drag to position · Use handles to resize and rotate · Double-click text to edit'}</p>
         </div>
         {project.composition.design
           ? inspectorHost && selection && (selection.id === selectedBlockId || selection.blockId === selectedBlockId) && createPortal(elementControls, inspectorHost)
