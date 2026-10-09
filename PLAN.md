@@ -1,7 +1,7 @@
 # Shelver — Plan del proyecto
 
 Fecha: 9 de octubre de 2026
-Estado: base de la fase 1 implementada; guardado local de la fase 2 implementado. Respaldos y deshacer/rehacer pendientes.
+Estado: base de la fase 1 implementada; guardado local, duplicación de proyectos, respaldos y deshacer/rehacer de la fase 2 implementados. Reutilización de plantillas pendiente.
 
 ## Objetivo
 
@@ -105,7 +105,7 @@ Una caja física personalizada PC/Steam es distinta de los assets digitales de l
 | Modelo de dominio | Proyectos y plantillas independientes del lienzo |
 | IndexedDB | Datos, blobs y migraciones |
 | pdf-lib | PDF con tamaño físico controlado |
-| Utilidad ZIP por elegir | Paquetes portables |
+| fflate | Paquetes ZIP portables |
 
 La misma composición servirá para vista previa y exportación. Se esperará a cargar imágenes y fuentes antes de exportar.
 
@@ -136,9 +136,9 @@ Criterio de finalización: montar una carátula con assets del usuario sin gener
 ### 2. Guardado y reutilización
 
 - [x] IndexedDB para proyectos y assets, guardado automático y recuperación tras recargar, con estados de guardado, errores y reintento.
-- Duplicación independiente de proyectos y plantillas.
-- Importación/exportación de `.coverproject` con todos los assets.
-- Deshacer y rehacer durante la sesión.
+- [x] Duplicación independiente de proyectos. Duplicación de plantillas pendiente del editor de plantillas.
+- [x] Importación/exportación de `.coverproject` con todos los assets referenciados por la composición, validación y restauración como copia independiente.
+- [x] Deshacer y rehacer durante la sesión, con historial por proyecto y guardado automático de los cambios restaurados.
 
 Criterio de finalización: cerrar y reabrir conserva el trabajo; el respaldo se restaura en un navegador sin datos previos.
 
@@ -180,6 +180,6 @@ Criterio de finalización: PNG y PDF coinciden con la composición; el PDF tiene
 
 ## Próximo paso
 
-Continuar la fase 2 con importación/exportación de `.coverproject` y deshacer/rehacer. Después validar medidas y ajustar la primera plantilla con una carátula real.
+Continuar con plantillas y composición: validar medidas y ajustar la primera plantilla con una carátula real, añadir capas y controles de encaje, y permitir guardar y duplicar plantillas propias.
 
 Los archivos de la carátula anterior no están disponibles en esta conversación. Para reproducir su composición o utilizar sus imágenes será necesario que el usuario los aporte.

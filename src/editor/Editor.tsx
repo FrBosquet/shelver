@@ -8,15 +8,21 @@ import { readElement, renderElement } from './fabricAdapter'
 type Props = {
   project: Project
   assets: Record<string, Asset>
-  onChange: (elements: Element[], asset?: Asset) => void
+  onChange: (elements: Element[], asset?: Asset, group?: string) => void
+  initialZoom?: number
+  onZoomChange: (zoom: number) => void
+  canUndo: boolean
+  canRedo: boolean
+  onUndo: () => void
+  onRedo: () => void
 }
 
-export function Editor({ project, assets, onChange }: Props) {
+export function Editor({ project, assets, onChange, initialZoom, onZoomChange, canUndo, canRedo, onUndo, onRedo }: Props) {
   const canvasElement = useRef<HTMLCanvasElement>(null)
   const workspace = useRef<HTMLDivElement>(null)
   const canvas = useRef<Canvas | null>(null)
   const records = useRef(new Map<FabricObject, Element>())
-  const initial = useRef({ project, assets })
+  const initial = useRef({ project, assets, initialZoom, onZoomChange })
   const changeHandler = useRef(onChange)
   const input = useRef<HTMLInputElement>(null)
   const mounted = useRef(false)
@@ -31,12 +37,13 @@ export function Editor({ project, assets, onChange }: Props) {
 
   useEffect(() => { changeHandler.current = onChange }, [onChange])
 
-  function sync(instance: Canvas, asset?: Asset) {
+  function sync(instance: Canvas, asset?: Asset, group?: string) {
     const elements = instance.getObjects().flatMap((object) => {
       const original = records.current.get(object)
       return original ? [readElement(object, original)] : []
     })
-    changeHandler.current(elements, asset)
+    setExported(null)
+    changeHandler.current(elements, asset, group)
   }
 
   useEffect(() => {
@@ -48,7 +55,7 @@ export function Editor({ project, assets, onChange }: Props) {
     const { project: startingProject, assets: startingAssets } = initial.current
     const { format: startingFormat, background, elements } = startingProject.composition
     const availableWidth = (workspace.current?.clientWidth ?? 780) - 60
-    const initialZoom = [0.6, 0.4, 0.3, 0.2].find((value) => startingFormat.width * value <= availableWidth) ?? 0.2
+    const initialZoom = initial.current.initialZoom ?? [0.6, 0.4, 0.3, 0.2].find((value) => startingFormat.width * value <= availableWidth) ?? 0.2
     const instance = new Canvas(node, {
       width: startingFormat.width * initialZoom, height: startingFormat.height * initialZoom,
       backgroundColor: background, preserveObjectStacking: true,
@@ -65,7 +72,10 @@ export function Editor({ project, assets, onChange }: Props) {
     instance.on('selection:updated', updateSelection)
     instance.on('selection:cleared', updateSelection)
     instance.on('object:modified', () => sync(instance))
-    instance.on('text:changed', () => { updateSelection(); sync(instance) })
+    instance.on('text:changed', () => {
+      updateSelection()
+      sync(instance, undefined, `text:${elementRecords.get(instance.getActiveObject()!)?.id}`)
+    })
     void Promise.all(elements.map(async (element) => ({
       element, object: await renderElement(element, startingAssets, controller.signal),
     }))).then((items) => {
@@ -76,6 +86,7 @@ export function Editor({ project, assets, onChange }: Props) {
       }
       instance.requestRenderAll()
       setZoom(initialZoom)
+      initial.current.onZoomChange(initialZoom)
       setReady(true)
     }).catch((cause: unknown) => {
       if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Unable to load this cover.')
@@ -89,12 +100,29 @@ export function Editor({ project, assets, onChange }: Props) {
     }
   }, [])
 
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || !(event.metaKey || event.ctrlKey) || !ready || busy) return
+      if (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]')) return
+      const active = canvas.current?.getActiveObject()
+      if (active instanceof Textbox && active.isEditing) return
+      const key = event.key.toLowerCase()
+      const redo = key === 'y' || (key === 'z' && event.shiftKey)
+      if (key !== 'z' && key !== 'y') return
+      event.preventDefault()
+      if (redo ? canRedo : canUndo) (redo ? onRedo : onUndo)()
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [canUndo, canRedo, onUndo, onRedo, ready, busy])
+
   function setCanvasZoom(value: number) {
     const instance = canvas.current
     if (!instance) return
     instance.setDimensions({ width: format.width * value, height: format.height * value })
     instance.setZoom(value)
     setZoom(value)
+    onZoomChange(value)
   }
 
   async function addText() {
@@ -151,7 +179,7 @@ export function Editor({ project, assets, onChange }: Props) {
     object.setCoords()
     setSelectedText(text)
     instance.requestRenderAll()
-    sync(instance)
+    sync(instance, undefined, `text:${records.current.get(object)?.id}`)
   }
 
   function removeSelected() {
@@ -195,6 +223,8 @@ export function Editor({ project, assets, onChange }: Props) {
           <button disabled={!ready || busy} onClick={() => input.current?.click()}>+ Artwork</button>
           <button disabled={!ready || busy} onClick={() => void addText()}>+ Text</button>
           <button disabled={!hasSelection || busy} onClick={removeSelected}>Delete</button>
+          <button disabled={!ready || busy || !canUndo} onClick={onUndo} title="Undo (Ctrl/Cmd+Z)">Undo</button>
+          <button disabled={!ready || busy || !canRedo} onClick={onRedo} title="Redo (Ctrl/Cmd+Shift+Z)">Redo</button>
         </div>
         <div className="toolbar-group">
           <label className="zoom-control">Zoom

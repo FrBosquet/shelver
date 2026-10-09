@@ -1,5 +1,6 @@
 import { createProject, duplicateProject, pcTemplate } from '../domain/projects'
 import type { Asset, Element, Project } from '../domain/types'
+import { validAsset, validProject } from '../domain/validation'
 import type { WorkspaceData, WorkspaceRepository } from './workspaceRepository'
 
 export type SaveStatus = 'loading' | 'saving' | 'saved' | 'error'
@@ -7,7 +8,10 @@ export type WorkspaceSnapshot = WorkspaceData & {
   loaded: boolean
   status: SaveStatus
   error: string | null
+  history: Record<string, { canUndo: boolean; canRedo: boolean; revision: number }>
 }
+
+type History = { past: Project[]; future: Project[]; revision: number; group?: { key: string; time: number } }
 
 function storageError(error: unknown, loading: boolean): string {
   if (error instanceof Error && error.name === 'QuotaExceededError') {
@@ -24,13 +28,14 @@ function storageError(error: unknown, loading: boolean): string {
 
 export class WorkspaceStore {
   private repository: WorkspaceRepository
-  private snapshot: WorkspaceSnapshot = { projects: [], assets: {}, loaded: false, status: 'loading', error: null }
+  private snapshot: WorkspaceSnapshot = { projects: [], assets: {}, loaded: false, status: 'loading', error: null, history: {} }
   private listeners = new Set<() => void>()
   private pendingProjects = new Map<string, Project>()
   private pendingAssets = new Map<string, Asset>()
   private timer: ReturnType<typeof setTimeout> | undefined
   private loading: Promise<void> | undefined
   private saving: Promise<void> | undefined
+  private histories = new Map<string, History>()
 
   constructor(repository: WorkspaceRepository) { this.repository = repository }
 
@@ -57,19 +62,72 @@ export class WorkspaceStore {
     return this.loading
   }
 
-  private queue(project: Project, asset?: Asset): void {
+  private queue(project: Project, assets: Asset[] = []): void {
     this.pendingProjects.set(project.id, project)
-    if (asset) this.pendingAssets.set(asset.id, asset)
+    for (const asset of assets) this.pendingAssets.set(asset.id, asset)
     const exists = this.snapshot.projects.some((current) => current.id === project.id)
     const projects = exists
       ? this.snapshot.projects.map((current) => current.id === project.id ? project : current)
       : [project, ...this.snapshot.projects]
     this.publish({
-      projects, assets: asset ? { ...this.snapshot.assets, [asset.id]: asset } : this.snapshot.assets,
+      projects, assets: assets.length ? { ...this.snapshot.assets, ...Object.fromEntries(assets.map((asset) => [asset.id, asset])) } : this.snapshot.assets,
+      history: { ...this.snapshot.history, [project.id]: this.historyState(project.id) },
       status: 'saving', error: null,
     })
     clearTimeout(this.timer)
     this.timer = setTimeout(() => { void this.flush() }, 300)
+  }
+
+  private historyState(id: string) {
+    const history = this.histories.get(id)
+    return { canUndo: Boolean(history?.past.length), canRedo: Boolean(history?.future.length), revision: history?.revision ?? 0 }
+  }
+
+  private record(project: Project, group?: string): void {
+    const history = this.histories.get(project.id) ?? { past: [], future: [], revision: 0 }
+    const time = Date.now()
+    if (!group || !history.group || history.group.key !== group || time - history.group.time > 750 || history.future.length) {
+      history.past.push(structuredClone(project))
+      if (history.past.length > 100) history.past.shift()
+    }
+    history.future = []
+    history.group = group ? { key: group, time } : undefined
+    this.histories.set(project.id, history)
+  }
+
+  undo(id: string): void { this.travel(id, 'undo') }
+  redo(id: string): void { this.travel(id, 'redo') }
+
+  private travel(id: string, direction: 'undo' | 'redo'): void {
+    const current = this.snapshot.projects.find((project) => project.id === id)
+    const history = this.histories.get(id)
+    if (!current || !history) return
+    const from = direction === 'undo' ? history.past : history.future
+    const to = direction === 'undo' ? history.future : history.past
+    const previous = from.pop()
+    if (!previous) return
+    to.push(structuredClone(current))
+    history.group = undefined
+    history.revision += 1
+    this.queue({ ...previous, updatedAt: new Date().toISOString() })
+  }
+
+  importProject(project: Project, assets: Asset[]): string {
+    if (!this.snapshot.loaded) throw new Error('Open your local library before importing a project.')
+    if (!validProject(project) || !assets.every(validAsset)) throw new Error('The imported project is invalid.')
+    const incoming = new Map(assets.map((asset) => [asset.id, asset]))
+    if (incoming.size !== assets.length || project.composition.elements.some((element) => element.type === 'image' && !incoming.has(element.assetId))) throw new Error('The imported project is missing artwork or has duplicate assets.')
+    const mapped = new Map(assets.map((asset) => [asset.id, { ...asset, id: crypto.randomUUID() }]))
+    const imported = structuredClone(project)
+    imported.id = crypto.randomUUID()
+    imported.createdAt = imported.updatedAt = new Date().toISOString()
+    if (this.snapshot.projects.some((current) => current.name === imported.name)) imported.name += ' (imported)'
+    imported.composition.elements = imported.composition.elements.map((element) => ({
+      ...element, id: crypto.randomUUID(),
+      ...(element.type === 'image' ? { assetId: mapped.get(element.assetId)!.id } : {}),
+    }))
+    this.queue(imported, [...mapped.values()])
+    return imported.id
   }
 
   create(): string | null {
@@ -86,13 +144,18 @@ export class WorkspaceStore {
 
   rename(id: string, name: string): void {
     const project = this.snapshot.projects.find((current) => current.id === id)
-    if (project && project.name !== name) this.queue({ ...project, name, updatedAt: new Date().toISOString() })
+    if (project && project.name !== name) {
+      this.record(project, 'name')
+      this.queue({ ...project, name, updatedAt: new Date().toISOString() })
+    }
   }
 
-  changeElements(id: string, elements: Element[], asset?: Asset): void {
+  changeElements(id: string, elements: Element[], asset?: Asset, group?: string): void {
     const project = this.snapshot.projects.find((current) => current.id === id)
     if (!project) return
-    this.queue({ ...project, composition: { ...project.composition, elements }, updatedAt: new Date().toISOString() }, asset)
+    if (JSON.stringify(project.composition.elements) === JSON.stringify(elements) && !asset) return
+    this.record(project, group)
+    this.queue({ ...project, composition: { ...project.composition, elements: structuredClone(elements) }, updatedAt: new Date().toISOString() }, asset ? [asset] : [])
   }
 
   hasUnsavedChanges = (): boolean => this.pendingProjects.size > 0 || this.pendingAssets.size > 0

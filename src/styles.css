@@ -65,7 +65,7 @@ h1 { font-family: Georgia, 'Times New Roman', serif; font-weight: 400; font-size
 .project-meta { display: flex; align-items: center; justify-content: space-between; padding-top: 10px; gap: 8px; }
 .project-meta button { background: none; border: 0; padding: 4px 0; text-align: left; font-size: 12px; }
 .project-meta .duplicate-button { color: #8a9382; font-size: 10px; }
-.editor-heading { display: flex; align-items: center; gap: 22px; padding: 26px 30px; border-bottom: 1px solid #e4e6de; }
+.editor-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; padding: 26px 30px; border-bottom: 1px solid #e4e6de; }
 .back-button { border: 0; background: transparent; color: #778270; padding: 4px 0; }
 .project-name { background: transparent; border: 0; color: #2f3c31; width: 300px; min-width: 0; font-size: 20px; font-family: Georgia, serif; }
 .save-status { margin-left: auto; font-size: 11px; color: #6d8560; white-space: nowrap; }
@@ -82,7 +82,7 @@ h1 { font-family: Georgia, 'Times New Roman', serif; font-weight: 400; font-size
 .loading-panel p { color: #7a8376; font-size: 13px; line-height: 1.8; }
 .project-date { margin: 6px 0 0; font-size: 10px; color: #8a9382; }
 .editor-toolbar { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; padding: 15px 24px; border-bottom: 1px solid #e0e4d9; background: #fafbf5; }
-.toolbar-group { display: flex; gap: 8px; align-items: center; }
+.toolbar-group { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .zoom-control { display: flex; gap: 9px; align-items: center; font-size: 11px; color: #7a846f; }
 select { color: #44513e; background: transparent; border: 1px solid #d8dfce; border-radius: 4px; padding: 7px; }
 .editor-body { display: flex; min-height: calc(100vh - 221px); }

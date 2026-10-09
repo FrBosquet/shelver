@@ -65,3 +65,11 @@ export type Asset = {
   width: number
   height: number
 }
+
+export type PackageAsset = Omit<Asset, 'blob'> & { path: string; size: number; sha256: string }
+export type ProjectPackage = {
+  type: 'shelver-project'
+  schemaVersion: typeof SCHEMA_VERSION
+  project: Project
+  assets: PackageAsset[]
+}

@@ -1,4 +1,4 @@
-import { SCHEMA_VERSION } from '../domain/types'
+import { validAsset, validProject } from '../domain/validation'
 import type { Asset, Project } from '../domain/types'
 
 const DATABASE_VERSION = 1
@@ -8,42 +8,6 @@ export type WorkspaceData = { projects: Project[]; assets: Record<string, Asset>
 export interface WorkspaceRepository {
   load(): Promise<WorkspaceData>
   save(projects: Project[], assets: Asset[]): Promise<void>
-}
-
-function object(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
-function validProject(value: unknown): value is Project {
-  if (!object(value) || value.schemaVersion !== SCHEMA_VERSION) return false
-  if (!['id', 'name', 'templateId', 'createdAt', 'updatedAt'].every((key) => typeof value[key] === 'string')) return false
-  if (!['pc', 'switch', 'playstation', 'xbox', 'custom'].includes(String(value.platform))) return false
-  if (!Number.isInteger(value.templateVersion) || !object(value.composition)) return false
-  const composition = value.composition
-  if (typeof composition.background !== 'string' || !object(composition.format) || !Array.isArray(composition.elements)) return false
-  const format = composition.format
-  if (!['px', 'mm'].includes(String(format.unit))) return false
-  if (![format.width, format.height].every((size) => typeof size === 'number' && Number.isFinite(size) && size > 0)) return false
-  if (![format.bleed, format.safeMargin].every((size) => typeof size === 'number' && Number.isFinite(size) && size >= 0)) return false
-  if (!Array.isArray(format.panels) || !format.panels.every((panel: unknown) => object(panel)
-    && ['back', 'spine', 'front'].includes(String(panel.id))
-    && typeof panel.x === 'number' && Number.isFinite(panel.x)
-    && typeof panel.width === 'number' && Number.isFinite(panel.width) && panel.width > 0)) return false
-  return composition.elements.every((element: unknown) => {
-    if (!object(element) || typeof element.id !== 'string' || typeof element.name !== 'string') return false
-    if (!['x', 'y', 'width', 'height', 'scaleX', 'scaleY', 'rotation', 'opacity'].every((key) => typeof element[key] === 'number' && Number.isFinite(element[key]))) return false
-    if (typeof element.visible !== 'boolean' || typeof element.locked !== 'boolean') return false
-    if (element.type === 'text') return ['text', 'fontFamily', 'fill'].every((key) => typeof element[key] === 'string') && typeof element.fontSize === 'number' && Number.isFinite(element.fontSize)
-    if (element.type === 'image') return typeof element.assetId === 'string'
-    return element.type === 'shape' && typeof element.fill === 'string'
-  })
-}
-
-function validAsset(value: unknown): value is Asset {
-  return object(value) && typeof value.id === 'string' && typeof value.name === 'string'
-    && typeof value.mimeType === 'string' && value.blob instanceof Blob
-    && typeof value.width === 'number' && value.width > 0 && Number.isFinite(value.width)
-    && typeof value.height === 'number' && value.height > 0 && Number.isFinite(value.height)
 }
 
 export class IndexedDbWorkspaceRepository implements WorkspaceRepository {
@@ -107,7 +71,7 @@ export class IndexedDbWorkspaceRepository implements WorkspaceRepository {
         }
         const assetMap = Object.fromEntries(assets.map((asset) => [asset.id, asset]))
         for (const project of projects) {
-          if (project.composition.elements.some((element) => element.type === 'image' && !assetMap[element.assetId])) {
+          if (project.composition.elements.some((element) => element.type === 'image' && !Object.hasOwn(assetMap, element.assetId))) {
             reject(new Error(`Artwork is missing from “${project.name}”. Existing data has been left untouched.`))
             return
           }
