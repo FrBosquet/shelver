@@ -8,11 +8,10 @@ import { readElement, renderElement } from './fabricAdapter'
 type Props = {
   project: Project
   assets: Record<string, Asset>
-  onChange: (elements: Element[]) => void
-  onAsset: (asset: Asset) => void
+  onChange: (elements: Element[], asset?: Asset) => void
 }
 
-export function Editor({ project, assets, onChange, onAsset }: Props) {
+export function Editor({ project, assets, onChange }: Props) {
   const canvasElement = useRef<HTMLCanvasElement>(null)
   const workspace = useRef<HTMLDivElement>(null)
   const canvas = useRef<Canvas | null>(null)
@@ -32,12 +31,12 @@ export function Editor({ project, assets, onChange, onAsset }: Props) {
 
   useEffect(() => { changeHandler.current = onChange }, [onChange])
 
-  function sync(instance: Canvas) {
+  function sync(instance: Canvas, asset?: Asset) {
     const elements = instance.getObjects().flatMap((object) => {
       const original = records.current.get(object)
       return original ? [readElement(object, original)] : []
     })
-    changeHandler.current(elements)
+    changeHandler.current(elements, asset)
   }
 
   useEffect(() => {
@@ -132,11 +131,10 @@ export function Editor({ project, assets, onChange, onAsset }: Props) {
       }
       object.set({ originX: 'left', originY: 'top', left: element.x, top: element.y, scaleX: scale, scaleY: scale })
       records.current.set(object, element)
-      onAsset(asset)
       instance.add(object)
       instance.setActiveObject(object)
       instance.requestRenderAll()
-      sync(instance)
+      sync(instance, asset)
     } catch {
       if (mounted.current) setError('This image could not be opened. Try a PNG, JPEG, or WebP file.')
     } finally {

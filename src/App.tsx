@@ -1,30 +1,26 @@
 import { lazy, Suspense, useState } from 'react'
-import { createProject, duplicateProject, pcTemplate } from './domain/projects'
-import type { Asset, Element, Project } from './domain/types'
+import type { Asset, Element } from './domain/types'
+import { useWorkspace } from './storage/useWorkspace'
 
 const Editor = lazy(() => import('./editor/Editor').then((module) => ({ default: module.Editor })))
 
 export function App() {
-  const [projects, setProjects] = useState<Project[]>([])
-  const [assets, setAssets] = useState<Record<string, Asset>>({})
+  const { projects, assets, loaded, status, error, store } = useWorkspace()
   const [activeId, setActiveId] = useState<string | null>(null)
   const activeProject = projects.find((project) => project.id === activeId)
+  const statusText = { loading: 'Loading library…', saving: 'Saving…', saved: 'Saved locally', error: loaded ? 'Changes not saved' : 'Library unavailable' }[status]
 
   function newProject() {
-    const project = createProject(pcTemplate)
-    setProjects((current) => [...current, project])
-    setActiveId(project.id)
+    const id = store.create()
+    if (id) setActiveId(id)
   }
 
-  function changeElements(elements: Element[]) {
-    setProjects((current) => current.map((project) => project.id === activeId
-      ? { ...project, updatedAt: new Date().toISOString(), composition: { ...project.composition, elements } }
-      : project))
+  function changeElements(projectId: string, elements: Element[], asset?: Asset) {
+    store.changeElements(projectId, elements, asset)
   }
 
   function rename(name: string) {
-    setProjects((current) => current.map((project) => project.id === activeId
-      ? { ...project, name, updatedAt: new Date().toISOString() } : project))
+    if (activeId) store.rename(activeId, name)
   }
 
   return (
@@ -35,18 +31,19 @@ export function App() {
         </a>
         <p className="eyebrow sidebar-label">YOUR WORKSPACE</p>
         <button className={`nav-item ${!activeProject ? 'active' : ''}`} onClick={() => setActiveId(null)}><span>▦</span> Cover library <span className="count">{projects.length}</span></button>
-        <div className="sidebar-bottom"><span className="status-dot" /> Browser workspace<p>Session only · Export before closing</p></div>
+        <div className="sidebar-bottom"><span className="save-indicator" data-status={status} role="status"><span className="status-dot" />{statusText}</span><p>This browser · This device</p></div>
       </aside>
       <main>
         <header className="topbar"><span>Personal cover studio</span><span className="badge">EARLY BUILD</span></header>
-        {activeProject ? <>
+        {error && <div className="storage-error" role="alert"><p>{error}</p><button onClick={() => void store.retry()}>{loaded ? 'Retry saving' : 'Retry loading'}</button></div>}
+        {!loaded ? <section className="loading-panel" aria-label="Local library"><h1>{status === 'error' ? 'Your library is unavailable.' : 'Opening your library…'}</h1><p>{status === 'error' ? 'Resolve the storage error and retry. Your existing data has not been replaced.' : 'Loading projects and artwork saved in this browser.'}</p></section> : activeProject ? <>
           <div className="editor-heading">
             <button className="back-button" onClick={() => setActiveId(null)}>← Library</button>
             <input className="project-name" aria-label="Project name" value={activeProject.name} onChange={(event) => rename(event.target.value)} />
-            <span className="session-label">Kept in this session</span>
+            <span className="save-status" data-status={status}>{statusText}</span>
           </div>
           <Suspense fallback={<p className="loading-message" role="status">Opening your workspace…</p>}>
-            <Editor key={activeProject.id} project={activeProject} assets={assets} onChange={changeElements} onAsset={(asset) => setAssets((current) => ({ ...current, [asset.id]: asset }))} />
+            <Editor key={activeProject.id} project={activeProject} assets={assets} onChange={(elements, asset) => changeElements(activeProject.id, elements, asset)} />
           </Suspense>
         </> : <div className="library">
           <div className="page-heading"><div><p className="eyebrow">THE COLLECTION STARTS HERE</p><h1>Your games.<br />Your shelf.</h1><p className="intro">Turn your artwork into covers worth keeping.<br />A little space for your collection, made by you.</p></div><button className="primary new-cover" onClick={newProject}>+ New cover</button></div>
@@ -54,7 +51,8 @@ export function App() {
             <div className="section-heading"><h2>Your covers</h2><span>{projects.length} {projects.length === 1 ? 'project' : 'projects'}</span></div>
             <div className="project-grid">{projects.map((project) => <article className="project-card" key={project.id}>
               <button className="project-preview" onClick={() => setActiveId(project.id)} aria-label={`Open ${project.name}`}><span>PC</span><strong>{project.name || 'Untitled cover'}</strong><small>SHELVER COLLECTION</small></button>
-              <div className="project-meta"><button onClick={() => setActiveId(project.id)}>{project.name || 'Untitled cover'}</button><button className="duplicate-button" onClick={() => setProjects((current) => [...current, duplicateProject(project)])} aria-label={`Duplicate ${project.name}`}>Duplicate</button></div>
+              <div className="project-meta"><button onClick={() => setActiveId(project.id)}>{project.name || 'Untitled cover'}</button><button className="duplicate-button" onClick={() => store.duplicate(project.id)} aria-label={`Duplicate ${project.name}`}>Duplicate</button></div>
+              <p className="project-date">Updated {new Date(project.updatedAt).toLocaleString()}</p>
             </article>)}</div>
           </section>}
           <section aria-label="Starter template">
@@ -64,7 +62,7 @@ export function App() {
               <div className="template-copy"><span className="tag">PC / STEAM</span><h3>A home for your next adventure.</h3><p>Front, spine, and back. One open canvas.<br />Bring the artwork; make the rest your own.</p><span className="template-link">Create a cover <span>↗</span></span></div>
             </button>
           </section>
-          <div className="library-footer"><span className="status-dot" /><p>Files stay in your browser. This first build keeps projects in memory;<br />local saving and portable project backups are next.</p></div>
+          <div className="library-footer"><span className="status-dot" /><p>Projects and artwork save automatically in this browser.<br />Clearing browser data removes your library. Portable backups are coming next.</p></div>
         </div>}
       </main>
     </div>

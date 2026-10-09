@@ -1,0 +1,142 @@
+import { SCHEMA_VERSION } from '../domain/types'
+import type { Asset, Project } from '../domain/types'
+
+const DATABASE_VERSION = 1
+const DATABASE_NAME = 'shelver'
+
+export type WorkspaceData = { projects: Project[]; assets: Record<string, Asset> }
+export interface WorkspaceRepository {
+  load(): Promise<WorkspaceData>
+  save(projects: Project[], assets: Asset[]): Promise<void>
+}
+
+function object(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function validProject(value: unknown): value is Project {
+  if (!object(value) || value.schemaVersion !== SCHEMA_VERSION) return false
+  if (!['id', 'name', 'templateId', 'createdAt', 'updatedAt'].every((key) => typeof value[key] === 'string')) return false
+  if (!['pc', 'switch', 'playstation', 'xbox', 'custom'].includes(String(value.platform))) return false
+  if (!Number.isInteger(value.templateVersion) || !object(value.composition)) return false
+  const composition = value.composition
+  if (typeof composition.background !== 'string' || !object(composition.format) || !Array.isArray(composition.elements)) return false
+  const format = composition.format
+  if (!['px', 'mm'].includes(String(format.unit))) return false
+  if (![format.width, format.height].every((size) => typeof size === 'number' && Number.isFinite(size) && size > 0)) return false
+  if (![format.bleed, format.safeMargin].every((size) => typeof size === 'number' && Number.isFinite(size) && size >= 0)) return false
+  if (!Array.isArray(format.panels) || !format.panels.every((panel: unknown) => object(panel)
+    && ['back', 'spine', 'front'].includes(String(panel.id))
+    && typeof panel.x === 'number' && Number.isFinite(panel.x)
+    && typeof panel.width === 'number' && Number.isFinite(panel.width) && panel.width > 0)) return false
+  return composition.elements.every((element: unknown) => {
+    if (!object(element) || typeof element.id !== 'string' || typeof element.name !== 'string') return false
+    if (!['x', 'y', 'width', 'height', 'scaleX', 'scaleY', 'rotation', 'opacity'].every((key) => typeof element[key] === 'number' && Number.isFinite(element[key]))) return false
+    if (typeof element.visible !== 'boolean' || typeof element.locked !== 'boolean') return false
+    if (element.type === 'text') return ['text', 'fontFamily', 'fill'].every((key) => typeof element[key] === 'string') && typeof element.fontSize === 'number' && Number.isFinite(element.fontSize)
+    if (element.type === 'image') return typeof element.assetId === 'string'
+    return element.type === 'shape' && typeof element.fill === 'string'
+  })
+}
+
+function validAsset(value: unknown): value is Asset {
+  return object(value) && typeof value.id === 'string' && typeof value.name === 'string'
+    && typeof value.mimeType === 'string' && value.blob instanceof Blob
+    && typeof value.width === 'number' && value.width > 0 && Number.isFinite(value.width)
+    && typeof value.height === 'number' && value.height > 0 && Number.isFinite(value.height)
+}
+
+export class IndexedDbWorkspaceRepository implements WorkspaceRepository {
+  private connection: Promise<IDBDatabase> | undefined
+  private database: IDBDatabase | undefined
+  private name: string
+  private factory: IDBFactory | undefined
+
+  constructor(name = DATABASE_NAME, factory = globalThis.indexedDB) {
+    this.name = name
+    this.factory = factory
+  }
+
+  private open(): Promise<IDBDatabase> {
+    if (this.connection) return this.connection
+    if (!this.factory) return Promise.reject(new Error('Local storage is unavailable in this browser.'))
+    const factory = this.factory
+    this.connection = new Promise<IDBDatabase>((resolve, reject) => {
+      const request = factory.open(this.name, DATABASE_VERSION)
+      let blocked = false
+      request.onupgradeneeded = (event) => {
+        // Version 1 introduces both stores. Future migrations belong here.
+        if (event.oldVersion < 1) {
+          request.result.createObjectStore('projects', { keyPath: 'id' })
+          request.result.createObjectStore('assets', { keyPath: 'id' })
+        }
+      }
+      request.onblocked = () => {
+        blocked = true
+        reject(new Error('Close other Shelver tabs and retry to open local storage.'))
+      }
+      request.onerror = () => reject(request.error ?? new Error('Unable to open local storage.'))
+      request.onsuccess = () => {
+        const database = request.result
+        if (blocked) { database.close(); return }
+        this.database = database
+        database.onversionchange = () => this.close()
+        database.onclose = () => { this.database = undefined; this.connection = undefined }
+        resolve(database)
+      }
+    }).catch((error: unknown) => {
+      this.connection = undefined
+      throw error
+    })
+    return this.connection
+  }
+
+  async load(): Promise<WorkspaceData> {
+    const database = await this.open()
+    return new Promise((resolve, reject) => {
+      const transaction = database.transaction(['projects', 'assets'], 'readonly')
+      const projectsRequest = transaction.objectStore('projects').getAll()
+      const assetsRequest = transaction.objectStore('assets').getAll()
+      transaction.onabort = () => reject(transaction.error ?? new Error('Unable to read local projects.'))
+      transaction.oncomplete = () => {
+        const projects: unknown[] = projectsRequest.result
+        const assets: unknown[] = assetsRequest.result
+        if (!projects.every(validProject) || !assets.every(validAsset)) {
+          reject(new Error('Local data is invalid or uses an unsupported version. Existing data has been left untouched.'))
+          return
+        }
+        const assetMap = Object.fromEntries(assets.map((asset) => [asset.id, asset]))
+        for (const project of projects) {
+          if (project.composition.elements.some((element) => element.type === 'image' && !assetMap[element.assetId])) {
+            reject(new Error(`Artwork is missing from “${project.name}”. Existing data has been left untouched.`))
+            return
+          }
+        }
+        resolve({ projects: projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), assets: assetMap })
+      }
+    })
+  }
+
+  async save(projects: Project[], assets: Asset[]): Promise<void> {
+    const database = await this.open()
+    return new Promise((resolve, reject) => {
+      const transaction = database.transaction(['projects', 'assets'], 'readwrite')
+      // Request success is not enough: report saved only after the entire transaction commits.
+      transaction.oncomplete = () => resolve()
+      transaction.onabort = () => reject(transaction.error ?? new Error('Local saving was interrupted.'))
+      try {
+        for (const asset of assets) transaction.objectStore('assets').add(asset)
+        for (const project of projects) transaction.objectStore('projects').put(project)
+      } catch (error) {
+        transaction.abort()
+        reject(error)
+      }
+    })
+  }
+
+  close(): void {
+    this.database?.close()
+    this.database = undefined
+    this.connection = undefined
+  }
+}

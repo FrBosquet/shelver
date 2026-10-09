@@ -1,7 +1,7 @@
 # Shelver — Plan del proyecto
 
 Fecha: 9 de octubre de 2026
-Estado: scaffolding inicial de la fase 1 en desarrollo.
+Estado: base de la fase 1 implementada; guardado local de la fase 2 implementado. Respaldos y deshacer/rehacer pendientes.
 
 ## Objetivo
 
@@ -135,7 +135,7 @@ Criterio de finalización: montar una carátula con assets del usuario sin gener
 
 ### 2. Guardado y reutilización
 
-- IndexedDB, guardado automático y recuperación tras recargar.
+- [x] IndexedDB para proyectos y assets, guardado automático y recuperación tras recargar, con estados de guardado, errores y reintento.
 - Duplicación independiente de proyectos y plantillas.
 - Importación/exportación de `.coverproject` con todos los assets.
 - Deshacer y rehacer durante la sesión.
@@ -180,6 +180,6 @@ Criterio de finalización: PNG y PDF coinciden con la composición; el PDF tiene
 
 ## Próximo paso
 
-Implementar la fase 1 con una composición genérica PC/Steam. Después validar medidas y ajustar la primera plantilla con una carátula real.
+Continuar la fase 2 con importación/exportación de `.coverproject` y deshacer/rehacer. Después validar medidas y ajustar la primera plantilla con una carátula real.
 
 Los archivos de la carátula anterior no están disponibles en esta conversación. Para reproducir su composición o utilizar sus imágenes será necesario que el usuario los aporte.

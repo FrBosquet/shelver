@@ -68,7 +68,19 @@ h1 { font-family: Georgia, 'Times New Roman', serif; font-weight: 400; font-size
 .editor-heading { display: flex; align-items: center; gap: 22px; padding: 26px 30px; border-bottom: 1px solid #e4e6de; }
 .back-button { border: 0; background: transparent; color: #778270; padding: 4px 0; }
 .project-name { background: transparent; border: 0; color: #2f3c31; width: 300px; min-width: 0; font-size: 20px; font-family: Georgia, serif; }
-.session-label { margin-left: auto; font-size: 11px; color: #899180; white-space: nowrap; }
+.save-status { margin-left: auto; font-size: 11px; color: #6d8560; white-space: nowrap; }
+.save-status[data-status='saving'], .save-indicator[data-status='saving'] { color: #a89055; }
+.save-status[data-status='error'], .save-indicator[data-status='error'] { color: #b86851; }
+.save-indicator[data-status='saving'] .status-dot { background: #c8a859; }
+.save-indicator[data-status='error'] .status-dot { background: #d37a5c; }
+.save-indicator[data-status='loading'] .status-dot { background: #8a978b; }
+.storage-error { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 30px; background: #f9e8df; color: #8e402f; font-size: 12px; }
+.storage-error p { margin: 0; line-height: 1.7; }
+.storage-error button { flex-shrink: 0; color: #8e402f; border-color: #e0bbaa; }
+.loading-panel { padding: 65px 46px; }
+.loading-panel h1 { font-size: 36px; letter-spacing: -1px; }
+.loading-panel p { color: #7a8376; font-size: 13px; line-height: 1.8; }
+.project-date { margin: 6px 0 0; font-size: 10px; color: #8a9382; }
 .editor-toolbar { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; padding: 15px 24px; border-bottom: 1px solid #e0e4d9; background: #fafbf5; }
 .toolbar-group { display: flex; gap: 8px; align-items: center; }
 .zoom-control { display: flex; gap: 9px; align-items: center; font-size: 11px; color: #7a846f; }
@@ -105,7 +117,7 @@ textarea { display: block; width: 100%; resize: vertical; padding: 11px; margin-
   .mini-spine { height: 190px; }
   .mini-front > span { font-size: 16px; }
   .inspector { width: 215px; }
-  .session-label { display: none; }
+  .save-status { font-size: 10px; }
 }
 @media (max-width: 850px) {
   .sidebar { width: 165px; }
