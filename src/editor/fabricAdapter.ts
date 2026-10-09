@@ -1,14 +1,72 @@
-import { FabricImage, Group, Rect, Textbox } from 'fabric'
+import { qrMatrix } from '../domain/qr'
+import { tableIcons } from '../domain/tableIcons'
+import { tableMarkdown } from './tableMarkdown'
 import { pegiColor, pegiLayout } from '../domain/pegi'
+import { Canvas2dFilterBackend, filters, FabricImage, Gradient, Group, Path, Pattern, Rect, Shadow, Textbox } from 'fabric'
 import type { FabricObject } from 'fabric'
-import type { Asset, Element } from '../domain/types'
+import type { Asset, Element, ImageFilters } from '../domain/types'
+import { attachBackdropBlur } from './backdropBlur'
+import { builtinAsset } from '../assets/logoLibrary'
 
-export async function renderElement(element: Element, assets: Record<string, Asset>, signal: AbortSignal): Promise<FabricObject> {
+export function imageFilters(settings: ImageFilters = {}) {
+  return [
+    ...(settings.tint ? [new filters.BlendColor({ color: settings.tint, mode: 'tint', alpha: 1 })] : []),
+    ...(settings.brightness ? [new filters.Brightness({ brightness: settings.brightness })] : []),
+    ...(settings.contrast ? [new filters.Contrast({ contrast: settings.contrast })] : []),
+    ...(settings.saturation ? [new filters.Saturation({ saturation: settings.saturation })] : []),
+    ...(settings.grayscale ? [new filters.Grayscale()] : []),
+    ...(settings.blur ? [new filters.Blur({ blur: settings.blur })] : []),
+    ...(settings.invert ? [new filters.Invert({ alpha: false })] : []),
+  ]
+}
+
+export async function renderElement(element: Element, assets: Record<string, Asset>, signal: AbortSignal, editableReplacement = false): Promise<FabricObject> {
   let object: FabricObject
   if (element.type === 'text') {
-    object = new Textbox(element.text, { fontFamily: element.fontFamily, fontSize: element.fontSize, fill: element.fill })
+    object = new Textbox(element.text, { width: element.width, fontFamily: element.fontFamily, fontSize: element.fontSize, fill: element.fill,
+      fontWeight: element.fontWeight ?? 'normal', textAlign: element.textAlign ?? 'left', lineHeight: element.lineHeight ?? 1.16 })
   } else if (element.type === 'shape') {
-    object = new Rect({ fill: element.fill })
+    object = new Rect({ fill: element.gradientTo ? new Gradient({ type: 'linear', gradientUnits: 'percentage', coords: { x1: 0, y1: 0, x2: 1, y2: 0 }, colorStops: [{ offset: 0, color: element.fill }, { offset: 1, color: element.gradientTo }] }) : element.fill })
+  } else if (element.type === 'table') {
+    const rows = element.cells.length, columns = element.cells[0].length
+    const width = element.width / columns, height = element.height / rows
+    const padding = element.padding ?? 8
+    const cells: FabricObject[] = []
+    element.cells.forEach((row, r) => row.forEach((cell, c) => {
+      cells.push(new Rect({ originX: 'left', originY: 'top', left: c * width, top: r * height, width, height, fill: element.fill, stroke: element.textColor, strokeWidth: 1 }))
+      const icon = tableIcons.find((entry) => entry.id === element.icons?.[r]?.[c])
+      const iconSize = Math.max(1, Math.min(24, height * 0.4, width - padding * 2))
+      let iconOffset = 0
+      if (icon) {
+        const path = new Path(icon.path, { fill: 'transparent', stroke: element.textColor, strokeWidth: 1.8, strokeLineCap: 'round', strokeLineJoin: 'round' })
+        path.scaleToHeight(iconSize)
+        if (path.getScaledWidth() > Math.max(1, width - padding * 2)) path.scaleToWidth(Math.max(1, width - padding * 2))
+        path.set({ originX: 'center', originY: 'top', left: c * width + width / 2, top: r * height + padding + (iconSize - path.getScaledHeight()) / 2 })
+        iconOffset = iconSize + 8
+        cells.push(path)
+      }
+      const markdown = element.contentFormat === 'markdown' ? tableMarkdown(cell) : { text: cell, styles: {} }
+      cells.push(new Textbox(markdown.text, { originX: 'left', originY: 'top', styles: markdown.styles, lineHeight: 1.15, left: c * width + padding, top: r * height + padding + iconOffset, textAlign: icon ? 'center' : 'left', width: Math.max(1, width - padding * 2), fontSize: element.fontSize, fontFamily: 'Arial', fill: element.textColor }))
+    }))
+    object = new Group(cells)
+  } else if (element.type === 'qr') {
+    const matrix = qrMatrix(element.url)
+    const size = Math.min(element.width, element.height)
+    const left = (element.width - size) / 2, top = (element.height - size) / 2
+    const parts: FabricObject[] = [
+      new Rect({ originX: 'left', originY: 'top', left: 0, top: 0, width: element.width, height: element.height, fill: 'transparent', strokeWidth: 0 }),
+      new Rect({ originX: 'left', originY: 'top', left, top, width: size, height: size, fill: '#ffffff', strokeWidth: 0 }),
+    ]
+    if (matrix) {
+      const cell = size / (matrix.length + 8)
+      // Four white modules around the symbol remain part of the component.
+      const commands = matrix.flatMap((row, y) => row.flatMap((dark, x) => dark
+        ? [`M ${left + (x + 4) * cell} ${top + (y + 4) * cell} h ${cell} v ${cell} h ${-cell} z`] : []))
+      parts.push(new Path(commands.join(' '), { originX: 'left', originY: 'top', left: left + 4 * cell, top: top + 4 * cell, fill: '#000000', strokeWidth: 0 }))
+    } else {
+      parts.push(new Textbox('Enter a valid URL', { originX: 'left', originY: 'top', left: left + size * 0.1, top: top + size * 0.35, width: size * 0.8, fontSize: size * 0.12, textAlign: 'center', fill: '#000000' }))
+    }
+    object = new Group(parts)
   } else if (element.type === 'rating') {
     const badge = pegiLayout(element.width, element.height)
     const { left, top, width, height, border, inset, square } = badge
@@ -22,11 +80,24 @@ export async function renderElement(element: Element, assets: Record<string, Ass
       new Textbox('www.pegi.info', { originX: 'left', originY: 'top', left: left + inset, top: top + inset + square + width * 0.015, width: square, fontSize: badge.footerSize, fontFamily: 'Arial', fill: '#000000', textAlign: 'center', lineHeight: 1 }),
     ])
   } else {
-    const asset = assets[element.assetId]
+    const asset = builtinAsset(element.assetId) ?? assets[element.assetId]
     if (!asset) throw new Error(`Missing artwork: ${element.name}`)
     const url = URL.createObjectURL(asset.blob)
     try {
       object = await FabricImage.fromURL(url, { signal })
+      if (element.filters && object instanceof FabricImage) {
+        const adjustments = imageFilters(element.filters)
+        if (adjustments.length) {
+          // Process image pixels in 2D so RGB adjustments preserve the original
+          // alpha channel, including transparent margins and antialiased edges.
+          const output = document.createElement('canvas')
+          output.width = asset.width
+          output.height = asset.height
+          const backend = new Canvas2dFilterBackend()
+          if (!backend.applyFilters(adjustments, object.getElement(), asset.width, asset.height, output)) throw new Error('Unable to filter this image.')
+          object.setElement(output)
+        }
+      }
     } finally {
       URL.revokeObjectURL(url)
     }
@@ -40,6 +111,27 @@ export async function renderElement(element: Element, assets: Record<string, Ass
     selectable: !element.locked, evented: !element.locked,
     cornerColor: '#c2e3b5', borderColor: '#c2e3b5', cornerStyle: 'circle', transparentCorners: false,
   })
+  if (element.type === 'image' && element.fit && object instanceof FabricImage) {
+    const source = object.getElement()
+    const asset = builtinAsset(element.assetId) ?? assets[element.assetId]
+    const factor = (element.fit === 'cover'
+      ? Math.max(element.width / asset.width, element.height / asset.height)
+      : element.fit === 'contain' ? Math.min(element.width / asset.width, element.height / asset.height) : 1) * (element.imageScale ?? 1)
+    const dx = (element.width - asset.width * factor) * (element.focalX ?? 0.5) + (element.offsetX ?? 0)
+    const dy = (element.height - asset.height * factor) * (element.focalY ?? 0.5) + (element.offsetY ?? 0)
+    const frame = new Rect({ ...object.toObject(), strokeWidth: 0, fill: new Pattern({
+      source, repeat: element.fit === 'repeat' ? 'repeat' : 'no-repeat',
+      offsetX: dx, offsetY: dy, patternTransform: [factor, 0, 0, factor, 0, 0],
+    }) })
+    object.dispose()
+    object = frame
+  }
+  if (element.type === 'image') {
+    const shadow = element.filters?.shadow
+    if (shadow) object.set({ shadow: new Shadow({ color: `${shadow.color}${Math.round(shadow.opacity * 255).toString(16).padStart(2, '0')}`, blur: shadow.blur, offsetX: shadow.offsetX, offsetY: shadow.offsetY }) })
+    if (element.filters?.backdropBlur) attachBackdropBlur(object, element.filters.backdropBlur)
+  }
+  if (element.blockId && !editableReplacement && object instanceof Textbox) object.set({ editable: false })
   return object
 }
 
@@ -50,7 +142,7 @@ export function readElement(object: FabricObject, original: Element): Element {
     opacity: object.opacity, visible: object.visible,
   }
   if (original.type === 'text' && object instanceof Textbox) {
-    return { ...base, type: 'text', text: object.text, fontFamily: object.fontFamily, fontSize: object.fontSize, fill: String(object.fill) }
+    return { ...base, height: original.blockId ? original.height : base.height, type: 'text', text: object.text, fontFamily: object.fontFamily, fontSize: object.fontSize, fill: String(object.fill) }
   }
   return base
 }

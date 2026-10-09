@@ -1,9 +1,14 @@
+import { remapElementAssets } from '../domain/elementTypes'
 import { createProject, duplicateProject, pcTemplate } from '../domain/projects'
-import type { Asset, Element, Project } from '../domain/types'
+import type { Asset, CoverDesign, Element, Format, Project } from '../domain/types'
+import { adaptElement, captureDesignEdits, composeDesign, placementOf, referencedAssetIds, remapDesign } from '../domain/composition'
+import { createSteamProject } from '../domain/steamTemplate'
 import { validAsset, validProject } from '../domain/validation'
 import type { WorkspaceData, WorkspaceRepository } from './workspaceRepository'
+import { builtinAsset, builtinAssets } from '../assets/logoLibrary'
 
-export type SaveStatus = 'loading' | 'saving' | 'saved' | 'error'
+export type SaveStatus = 'loading' | 'pending' | 'saving' | 'saved' | 'error'
+const AUTOSAVE_DELAY = 800
 export type WorkspaceSnapshot = WorkspaceData & {
   loaded: boolean
   status: SaveStatus
@@ -32,9 +37,12 @@ export class WorkspaceStore {
   private listeners = new Set<() => void>()
   private pendingProjects = new Map<string, Project>()
   private pendingAssets = new Map<string, Asset>()
+  private pendingDeletions = new Set<string>()
   private timer: ReturnType<typeof setTimeout> | undefined
   private loading: Promise<void> | undefined
   private saving: Promise<void> | undefined
+  private forceSave = false
+  private interactions = 0
   private histories = new Map<string, History>()
 
   constructor(repository: WorkspaceRepository) { this.repository = repository }
@@ -55,16 +63,23 @@ export class WorkspaceStore {
     if (this.loading) return this.loading
     this.publish({ status: 'loading', error: null })
     this.loading = this.repository.load().then((data) => {
-      this.publish({ ...data, loaded: true, status: 'saved', error: null })
+      this.publish({ ...data, assets: { ...data.assets, ...builtinAssets }, projects: data.projects.map(composeDesign), loaded: true, status: 'saved', error: null })
     }).catch((error: unknown) => {
       this.publish({ status: 'error', error: storageError(error, true) })
     }).finally(() => { this.loading = undefined })
     return this.loading
   }
 
+  addProjectAssets(id: string, assets: Asset[]): void {
+    const project = this.snapshot.projects.find((item) => item.id === id)
+    if (!project || !assets.length) return
+    if (!assets.every(validAsset)) throw new Error('Invalid artwork.')
+    this.queue({ ...project, assetIds: [...new Set([...(project.assetIds ?? []), ...assets.map((asset) => asset.id)])], updatedAt: new Date().toISOString() }, assets)
+  }
+
   private queue(project: Project, assets: Asset[] = []): void {
     this.pendingProjects.set(project.id, project)
-    for (const asset of assets) this.pendingAssets.set(asset.id, asset)
+    for (const asset of assets) if (!builtinAsset(asset.id)) this.pendingAssets.set(asset.id, asset)
     const exists = this.snapshot.projects.some((current) => current.id === project.id)
     const projects = exists
       ? this.snapshot.projects.map((current) => current.id === project.id ? project : current)
@@ -72,10 +87,31 @@ export class WorkspaceStore {
     this.publish({
       projects, assets: assets.length ? { ...this.snapshot.assets, ...Object.fromEntries(assets.map((asset) => [asset.id, asset])) } : this.snapshot.assets,
       history: { ...this.snapshot.history, [project.id]: this.historyState(project.id) },
-      status: 'saving', error: null,
+      status: this.saving ? 'saving' : 'pending', error: null,
     })
+    this.scheduleSave()
+  }
+
+  private scheduleSave(): void {
     clearTimeout(this.timer)
-    this.timer = setTimeout(() => { void this.flush() }, 300)
+    this.timer = undefined
+    if (this.interactions || !this.hasUnsavedChanges()) return
+    this.timer = setTimeout(() => {
+      this.timer = undefined
+      void this.startSave(false)
+    }, AUTOSAVE_DELAY)
+  }
+
+  beginInteraction = (): void => {
+    this.interactions += 1
+    clearTimeout(this.timer)
+    this.timer = undefined
+  }
+
+  endInteraction = (): void => {
+    if (!this.interactions) return
+    this.interactions -= 1
+    if (!this.interactions) this.scheduleSave()
   }
 
   private historyState(id: string) {
@@ -116,17 +152,20 @@ export class WorkspaceStore {
     if (!this.snapshot.loaded) throw new Error('Open your local library before importing a project.')
     if (!validProject(project) || !assets.every(validAsset)) throw new Error('The imported project is invalid.')
     const incoming = new Map(assets.map((asset) => [asset.id, asset]))
-    if (incoming.size !== assets.length || project.composition.elements.some((element) => element.type === 'image' && !incoming.has(element.assetId))) throw new Error('The imported project is missing artwork or has duplicate assets.')
-    const mapped = new Map(assets.map((asset) => [asset.id, { ...asset, id: crypto.randomUUID() }]))
+    if (incoming.size !== assets.length || referencedAssetIds(project).some((id) => !incoming.has(id))) throw new Error('The imported project is missing artwork or has duplicate assets.')
+    const mapped = new Map(assets.map((asset) => [asset.id, builtinAsset(asset.id) ?? { ...asset, id: crypto.randomUUID() }]))
     const imported = structuredClone(project)
+    if (imported.assetIds) imported.assetIds = imported.assetIds.map((id) => mapped.get(id)!.id)
     imported.id = crypto.randomUUID()
     imported.createdAt = imported.updatedAt = new Date().toISOString()
     if (this.snapshot.projects.some((current) => current.name === imported.name)) imported.name += ' (imported)'
-    imported.composition.elements = imported.composition.elements.map((element) => ({
-      ...element, id: crypto.randomUUID(),
-      ...(element.type === 'image' ? { assetId: mapped.get(element.assetId)!.id } : {}),
-    }))
-    this.queue(imported, [...mapped.values()])
+    const elementIds = new Map(imported.composition.elements.map((element) => [element.id, crypto.randomUUID()]))
+    const assetIds = new Map([...mapped].map(([id, asset]) => [id, asset.id]))
+    imported.composition.elements = imported.composition.elements.map((element) => remapElementAssets({ ...element, id: elementIds.get(element.id)! }, assetIds))
+    if (imported.composition.design) imported.composition.design = remapDesign(imported.composition.design, new Map([...mapped].map(([id, asset]) => [id, asset.id])), elementIds)
+    const restored = composeDesign(imported)
+    if (!validProject(restored)) throw new Error('The imported template contains invalid element references.')
+    this.queue(restored, [...mapped.values()])
     return imported.id
   }
 
@@ -137,9 +176,50 @@ export class WorkspaceStore {
     return project.id
   }
 
+  createSteam(format?: Format): string | null {
+    if (!this.snapshot.loaded) return null
+    const project = createSteamProject(format)
+    this.queue(project)
+    return project.id
+  }
+
+  updateDesign(id: string, design: CoverDesign, assets: Asset[] = [], group?: string, refreshEditor = true): void {
+    const project = this.snapshot.projects.find((current) => current.id === id)
+    if (!project?.composition.design) return
+    const next = composeDesign({ ...project, composition: { ...project.composition, design: structuredClone(design) } })
+    if (!validProject(next)) throw new Error('The template contains invalid fields or layout values.')
+    if (JSON.stringify(project.composition) === JSON.stringify(next.composition) && !assets.length) return
+    this.record(project, group)
+    if (refreshEditor) this.histories.get(id)!.revision += 1
+    this.queue({ ...next, updatedAt: new Date().toISOString() }, assets)
+  }
+
+  changeFormat(id: string, format: Format): void {
+    const project = this.snapshot.projects.find((current) => current.id === id)
+    if (!project || JSON.stringify(format) === JSON.stringify(project.composition.format)) return
+    const next = composeDesign({ ...project, composition: { ...project.composition, format: structuredClone(format),
+      elements: project.composition.design ? project.composition.elements : project.composition.elements.map((element) => adaptElement(element, placementOf(element, project.composition.format), format)) } })
+    if (!validProject(next)) throw new Error('This format is invalid.')
+    this.record(project)
+    this.histories.get(id)!.revision += 1
+    this.queue({ ...next, updatedAt: new Date().toISOString() })
+  }
+
   duplicate(id: string): void {
     const original = this.snapshot.projects.find((project) => project.id === id)
     if (original) this.queue(duplicateProject(original))
+  }
+
+  deleteProject(id: string): void {
+    if (!this.snapshot.loaded || !this.snapshot.projects.some((project) => project.id === id)) return
+    this.pendingProjects.delete(id)
+    this.pendingDeletions.add(id)
+    this.histories.delete(id)
+    const history = { ...this.snapshot.history }
+    delete history[id]
+    this.publish({ projects: this.snapshot.projects.filter((project) => project.id !== id), history,
+      status: this.saving ? 'saving' : 'pending', error: null })
+    this.scheduleSave()
   }
 
   rename(id: string, name: string): void {
@@ -155,18 +235,30 @@ export class WorkspaceStore {
     if (!project) return
     if (JSON.stringify(project.composition.elements) === JSON.stringify(elements) && !asset) return
     this.record(project, group)
-    this.queue({ ...project, composition: { ...project.composition, elements: structuredClone(elements) }, updatedAt: new Date().toISOString() }, asset ? [asset] : [])
+    const changed = captureDesignEdits(project, structuredClone(elements))
+    this.queue({ ...changed, updatedAt: new Date().toISOString() }, asset ? [asset] : [])
   }
 
-  hasUnsavedChanges = (): boolean => this.pendingProjects.size > 0 || this.pendingAssets.size > 0
+  hasUnsavedChanges = (): boolean => this.pendingProjects.size > 0 || this.pendingAssets.size > 0 || this.pendingDeletions.size > 0
 
   flush = (): Promise<void> => {
     clearTimeout(this.timer)
     this.timer = undefined
+    return this.startSave(true)
+  }
+
+  private startSave(force: boolean): Promise<void> {
+    // Explicit flushes (retry, page hidden, closing) also drain newer edits.
+    // Autosave writes one batch so in-flight edits keep their own debounce.
+    if (force) this.forceSave = true
     if (this.saving) return this.saving
-    if (!this.hasUnsavedChanges()) return Promise.resolve()
+    if (!this.hasUnsavedChanges()) { this.forceSave = false; return Promise.resolve() }
     this.publish({ status: 'saving', error: null })
-    this.saving = this.savePending().finally(() => { this.saving = undefined })
+    this.saving = this.savePending().finally(() => {
+      this.saving = undefined
+      this.forceSave = false
+      if (this.hasUnsavedChanges() && !this.timer && this.snapshot.status !== 'error') this.scheduleSave()
+    })
     return this.saving
   }
 
@@ -174,9 +266,13 @@ export class WorkspaceStore {
     while (this.hasUnsavedChanges()) {
       const projects = [...this.pendingProjects.values()]
       const assets = [...this.pendingAssets.values()]
+      const deletedProjectIds = [...this.pendingDeletions]
       try {
-        await this.repository.save(projects, assets)
+        if (deletedProjectIds.length) await this.repository.save(projects, assets, deletedProjectIds)
+        else await this.repository.save(projects, assets)
       } catch (error) {
+        clearTimeout(this.timer)
+        this.timer = undefined
         this.publish({ status: 'error', error: storageError(error, false) })
         return
       }
@@ -186,8 +282,10 @@ export class WorkspaceStore {
       for (const asset of assets) {
         if (this.pendingAssets.get(asset.id) === asset) this.pendingAssets.delete(asset.id)
       }
+      for (const id of deletedProjectIds) this.pendingDeletions.delete(id)
+      if (!this.forceSave) break
     }
-    this.publish({ status: 'saved', error: null })
+    this.publish({ status: this.hasUnsavedChanges() ? 'pending' : 'saved', error: null })
   }
 
   retry = (): Promise<void> => this.snapshot.loaded ? this.flush() : this.load()

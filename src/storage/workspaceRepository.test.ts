@@ -93,7 +93,7 @@ describe('IndexedDB workspace', () => {
     const storage = repository()
     const project = createProject(pcTemplate)
     // Simulate a project written by a future release.
-    Object.assign(project, { schemaVersion: 2 })
+    Object.assign(project, { schemaVersion: 999 })
     await storage.save([project], [])
     await expect(storage.load()).rejects.toThrow('unsupported version')
     await expect(repository().load()).rejects.toThrow('unsupported version')

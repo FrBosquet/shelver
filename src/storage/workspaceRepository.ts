@@ -1,5 +1,7 @@
 import { validAsset, validProject } from '../domain/validation'
 import type { Asset, Project } from '../domain/types'
+import { referencedAssetIds } from '../domain/composition'
+import { builtinAsset } from '../assets/logoLibrary'
 
 const DATABASE_VERSION = 1
 const DATABASE_NAME = 'shelver'
@@ -7,7 +9,7 @@ const DATABASE_NAME = 'shelver'
 export type WorkspaceData = { projects: Project[]; assets: Record<string, Asset> }
 export interface WorkspaceRepository {
   load(): Promise<WorkspaceData>
-  save(projects: Project[], assets: Asset[]): Promise<void>
+  save(projects: Project[], assets: Asset[], deletedProjectIds?: string[]): Promise<void>
 }
 
 export class IndexedDbWorkspaceRepository implements WorkspaceRepository {
@@ -71,7 +73,7 @@ export class IndexedDbWorkspaceRepository implements WorkspaceRepository {
         }
         const assetMap = Object.fromEntries(assets.map((asset) => [asset.id, asset]))
         for (const project of projects) {
-          if (project.composition.elements.some((element) => element.type === 'image' && !Object.hasOwn(assetMap, element.assetId))) {
+          if (referencedAssetIds(project).some((id) => !Object.hasOwn(assetMap, id) && !builtinAsset(id))) {
             reject(new Error(`Artwork is missing from “${project.name}”. Existing data has been left untouched.`))
             return
           }
@@ -81,7 +83,7 @@ export class IndexedDbWorkspaceRepository implements WorkspaceRepository {
     })
   }
 
-  async save(projects: Project[], assets: Asset[]): Promise<void> {
+  async save(projects: Project[], assets: Asset[], deletedProjectIds: string[] = []): Promise<void> {
     const database = await this.open()
     return new Promise((resolve, reject) => {
       const transaction = database.transaction(['projects', 'assets'], 'readwrite')
@@ -91,6 +93,7 @@ export class IndexedDbWorkspaceRepository implements WorkspaceRepository {
       try {
         for (const asset of assets) transaction.objectStore('assets').add(asset)
         for (const project of projects) transaction.objectStore('projects').put(project)
+        for (const id of deletedProjectIds) transaction.objectStore('projects').delete(id)
       } catch (error) {
         transaction.abort()
         reject(error)

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { createProject, pcTemplate } from '../domain/projects'
-import type { Asset } from '../domain/types'
+import type { Asset, ImageElement } from '../domain/types'
 import { IndexedDbWorkspaceRepository } from './workspaceRepository'
 import type { WorkspaceData } from './workspaceRepository'
 import { WorkspaceStore } from './workspaceStore'
@@ -28,6 +28,67 @@ afterEach(() => {
 })
 
 describe('autosave', () => {
+  it('restores image filters, blur and shadows after saving and reopening, including subsequent template edits and resets', async () => {
+    const storage = repository()
+    const store = new WorkspaceStore(storage)
+    await store.load()
+    const id = store.createSteam()!
+    const current = () => store.getSnapshot().projects.find((project) => project.id === id)!
+    const original = current().composition.elements.find((element) => element.type === 'image')! as ImageElement
+    const filters = { brightness: 0.25, contrast: -0.1, saturation: 0.4, grayscale: true, invert: true, tint: '#123456', blur: 0.15, backdropBlur: 8, shadow: { color: '#000000', opacity: 0.6, blur: 12, offsetX: 3, offsetY: 4 } }
+    store.changeElements(id, current().composition.elements.map((element) => element.id === original.id ? { ...original, filters } : element), undefined, `svg-filters:${original.id}`)
+    const design = structuredClone(current().composition.design!)
+    design.shared.title = 'Updated title'
+    store.updateDesign(id, design)
+    await store.flush()
+    const reopened = new WorkspaceStore(storage)
+    await reopened.load()
+    const restored = reopened.getSnapshot().projects.find((project) => project.id === id)!
+    expect((restored.composition.elements.find((element) => element.id === original.id) as ImageElement).filters).toEqual(filters)
+    expect((restored.composition.design!.overrides[original.id].replacement as ImageElement).filters).toEqual(filters)
+    reopened.changeElements(id, restored.composition.elements.map((element) => element.id === original.id ? { ...element, filters: {} } : element))
+    await reopened.flush()
+    const reset = new WorkspaceStore(storage)
+    await reset.load()
+    expect((reset.getSnapshot().projects.find((project) => project.id === id)!.composition.elements.find((element) => element.id === original.id) as ImageElement).filters).toEqual({})
+  })
+
+  it('saves uploads in the project library without placing or remounting canvas elements', async () => {
+    const storage = repository()
+    const store = new WorkspaceStore(storage)
+    await store.load()
+    const id = store.createSteam()!
+    const before = store.getSnapshot().projects.find((item) => item.id === id)!
+    const revision = store.getSnapshot().history[id].revision
+    const asset: Asset = { id: 'unplaced', name: 'Artwork', blob: new Blob(['art'], { type: 'image/png' }), mimeType: 'image/png', width: 1, height: 1 }
+    store.addProjectAssets(id, [asset])
+    expect(store.getSnapshot().projects.find((item) => item.id === id)!.composition).toEqual(before.composition)
+    expect(store.getSnapshot().history[id].revision).toBe(revision)
+    await store.flush()
+    const data = await storage.load()
+    expect(data.projects[0].assetIds).toEqual([asset.id])
+    expect(data.assets[asset.id].name).toBe(asset.name)
+  })
+
+  it('restores an individual template element without remounting the editor and supports undo', async () => {
+    const store = new WorkspaceStore(repository())
+    await store.load()
+    const id = store.createSteam()!
+    const project = store.getSnapshot().projects.find((item) => item.id === id)!
+    const element = project.composition.elements.find((item) => item.type === 'text' && item.blockId)!
+    const design = structuredClone(project.composition.design!)
+    design.overrides[element.id] = { text: 'Individual content' }
+    store.updateDesign(id, design)
+    const revision = store.getSnapshot().history[id].revision
+    delete design.overrides[element.id]
+    store.updateDesign(id, design, [], undefined, false)
+    expect(store.getSnapshot().history[id].revision).toBe(revision)
+    expect(store.getSnapshot().projects.find((item) => item.id === id)!.composition.elements.find((item) => item.id === element.id)).toEqual(element)
+    store.undo(id)
+    expect(store.getSnapshot().projects.find((item) => item.id === id)!.composition.design!.overrides[element.id].text).toBe('Individual content')
+    expect(store.getSnapshot().history[id].revision).toBeGreaterThan(revision)
+  })
+
   it('waits for hydration before allowing changes and loads only once', async () => {
     const data = deferred<WorkspaceData>()
     const load = vi.fn(() => data.promise)
@@ -44,20 +105,134 @@ describe('autosave', () => {
     expect(storage.save).not.toHaveBeenCalled()
   })
 
-  it('coalesces rapid edits and saves automatically after 300 ms', async () => {
+  it('restarts the 800 ms debounce on every edit and saves only the latest value', async () => {
     const storage = { load: vi.fn(async () => ({ projects: [], assets: {} })), save: vi.fn(async () => {}) }
     const store = new WorkspaceStore(storage)
     await store.load()
     const id = store.create()!
     store.rename(id, 'First')
+    await vi.advanceTimersByTimeAsync(700)
     store.rename(id, 'Final name')
-    expect(store.getSnapshot().status).toBe('saving')
-    await vi.advanceTimersByTimeAsync(299)
+    expect(store.getSnapshot().status).toBe('pending')
+    await vi.advanceTimersByTimeAsync(799)
     expect(storage.save).not.toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(1)
     expect(storage.save).toHaveBeenCalledTimes(1)
     expect(storage.save.mock.calls[0]).toEqual([[expect.objectContaining({ name: 'Final name' })], []])
     expect(store.getSnapshot().status).toBe('saved')
+  })
+
+  it('keeps slider changes in memory throughout a long gesture and saves once after release', async () => {
+    const storage = { load: async () => ({ projects: [], assets: {} }), save: vi.fn(async () => {}) }
+    const store = new WorkspaceStore(storage)
+    await store.load()
+    const id = store.createSteam()!
+    const design = structuredClone(store.getSnapshot().projects[0].composition.design!)
+    const asset: Asset = { id: 'art', blob: new Blob(['art']), name: 'art.png', mimeType: 'image/png', width: 100, height: 200 }
+    design.images.frontArt = { assetId: asset.id, fit: 'cover', focalX: 0.5, focalY: 0.5 }
+    store.updateDesign(id, design, [asset])
+    await vi.advanceTimersByTimeAsync(700)
+    store.beginInteraction()
+    for (const focalX of [0.2, 0.6, 0.9]) {
+      const next = structuredClone(store.getSnapshot().projects[0].composition.design!)
+      next.images.frontArt.focalX = focalX
+      store.updateDesign(id, next, [], 'focus:frontArt:focalX')
+      await vi.advanceTimersByTimeAsync(1500)
+      expect(storage.save).not.toHaveBeenCalled()
+      expect(store.getSnapshot().projects[0].composition.design!.images.frontArt.focalX).toBe(focalX)
+    }
+    expect(store.getSnapshot().status).toBe('pending')
+    store.endInteraction()
+    await vi.advanceTimersByTimeAsync(799)
+    expect(storage.save).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(storage.save.mock.calls).toEqual([[
+      [expect.objectContaining({ composition: expect.objectContaining({ design: expect.objectContaining({ images: expect.objectContaining({ frontArt: expect.objectContaining({ focalX: 0.9 }) }) }) }) })],
+      [asset],
+    ]])
+    expect(store.hasUnsavedChanges()).toBe(false)
+  })
+
+  it('does not bypass debounce for edits made during an automatic write', async () => {
+    const first = deferred<void>()
+    const second = deferred<void>()
+    const save = vi.fn(async () => {}).mockImplementationOnce(() => first.promise).mockImplementationOnce(() => second.promise)
+    const store = new WorkspaceStore({ load: async () => ({ projects: [], assets: {} }), save })
+    await store.load()
+    const id = store.create()!
+    await vi.advanceTimersByTimeAsync(800)
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(store.getSnapshot().status).toBe('saving')
+    store.rename(id, 'Final value')
+    first.resolve()
+    await vi.advanceTimersByTimeAsync(799)
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(store.getSnapshot().status).toBe('pending')
+    expect(store.hasUnsavedChanges()).toBe(true)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(store.getSnapshot().status).toBe('saving')
+    second.resolve()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getSnapshot().status).toBe('saved')
+  })
+
+  it('reschedules pending edits if their debounce expires while a slow write is running', async () => {
+    const first = deferred<void>()
+    const save = vi.fn(async () => {}).mockImplementationOnce(() => first.promise)
+    const store = new WorkspaceStore({ load: async () => ({ projects: [], assets: {} }), save })
+    await store.load()
+    const id = store.create()!
+    await vi.advanceTimersByTimeAsync(800)
+    store.rename(id, 'While busy')
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(save).toHaveBeenCalledTimes(1)
+    first.resolve()
+    await vi.advanceTimersByTimeAsync(799)
+    expect(save).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(store.getSnapshot().status).toBe('saved')
+  })
+
+  it('flushes immediately even during a gesture and still debounces later edits', async () => {
+    const storage = { load: async () => ({ projects: [], assets: {} }), save: vi.fn(async () => {}) }
+    const store = new WorkspaceStore(storage)
+    await store.load()
+    const id = store.create()!
+    store.beginInteraction()
+    await store.flush()
+    expect(storage.save).toHaveBeenCalledTimes(1)
+    await store.flush() // An empty forced flush must not force the next autosave.
+    store.rename(id, 'After hiding')
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(storage.save).toHaveBeenCalledTimes(1)
+    store.endInteraction()
+    await vi.advanceTimersByTimeAsync(800)
+    expect(storage.save).toHaveBeenCalledTimes(2)
+    expect(store.getSnapshot().status).toBe('saved')
+    store.endInteraction() // Duplicate release must not suspend future saves.
+    store.rename(id, 'Next edit')
+    await vi.advanceTimersByTimeAsync(800)
+    expect(storage.save).toHaveBeenCalledTimes(3)
+  })
+
+  it('drains newer edits when an explicit flush joins an automatic write', async () => {
+    const first = deferred<void>()
+    const save = vi.fn(async () => {}).mockImplementationOnce(() => first.promise)
+    const store = new WorkspaceStore({ load: async () => ({ projects: [], assets: {} }), save })
+    await store.load()
+    const id = store.create()!
+    await vi.advanceTimersByTimeAsync(800)
+    store.beginInteraction()
+    store.rename(id, 'Latest before closing')
+    const closing = store.flush()
+    first.resolve()
+    await closing
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(save.mock.calls[1]).toEqual([[expect.objectContaining({ name: 'Latest before closing' })], []])
+    expect(store.getSnapshot().status).toBe('saved')
+    store.endInteraction()
   })
 
   it('keeps edits made during an in-flight save pending until their own transaction commits', async () => {
@@ -280,5 +455,62 @@ describe('session history', () => {
     expect(store.getSnapshot().projects[0].composition.elements[0].x).toBe(675)
     expect(store.getSnapshot().history[id].canUndo).toBe(false)
     await store.flush()
+  })
+})
+
+describe('cover deletion', () => {
+  it('persists deletion without affecting another cover or its shared artwork', async () => {
+    const storage = repository()
+    const store = new WorkspaceStore(storage)
+    await store.load()
+    const id = store.create()!
+    const asset: Asset = { id: 'shared', name: 'art.png', blob: new Blob(['art']), mimeType: 'image/png', width: 100, height: 100 }
+    const elements = store.getSnapshot().projects[0].composition.elements
+    store.changeElements(id, [...elements, { id: 'image', name: 'Art', type: 'image', assetId: asset.id, x: 0, y: 0, width: 100, height: 100, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1, visible: true, locked: false }], asset)
+    store.duplicate(id)
+    await store.flush()
+    store.deleteProject(id)
+    store.undo(id)
+    await store.flush()
+    const reopened = new WorkspaceStore(storage)
+    await reopened.load()
+    expect(reopened.getSnapshot().projects).toHaveLength(1)
+    expect(reopened.getSnapshot().projects[0].id).not.toBe(id)
+    expect(reopened.getSnapshot().assets.shared).toBeDefined()
+    expect(store.getSnapshot().history[id]).toBeUndefined()
+  })
+
+  it('retries a failed deletion', async () => {
+    const storage = repository()
+    const save = vi.fn(storage.save.bind(storage))
+    const store = new WorkspaceStore({ load: storage.load.bind(storage), save })
+    await store.load()
+    const id = store.create()!
+    await store.flush()
+    save.mockRejectedValueOnce(new Error('Interrupted'))
+    store.deleteProject(id)
+    await store.flush()
+    expect(store.getSnapshot().status).toBe('error')
+    expect(store.hasUnsavedChanges()).toBe(true)
+    await store.retry()
+    expect((await storage.load()).projects).toEqual([])
+  })
+
+  it('deletes a cover while its creation is being saved', async () => {
+    const storage = repository()
+    const first = deferred<void>()
+    const save = vi.fn(storage.save.bind(storage)).mockImplementationOnce(async (projects, assets) => {
+      await first.promise
+      await storage.save(projects, assets)
+    })
+    const store = new WorkspaceStore({ load: storage.load.bind(storage), save })
+    await store.load()
+    const id = store.create()!
+    const saving = store.flush()
+    store.deleteProject(id)
+    first.resolve()
+    await saving
+    expect((await storage.load()).projects).toEqual([])
+    expect(store.hasUnsavedChanges()).toBe(false)
   })
 })

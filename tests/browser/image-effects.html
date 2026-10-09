@@ -1,0 +1,31 @@
+<!doctype html><html><body style="font:16px system-ui;background:#f6f5f0"><h1>Image effects verification</h1><p id="status">Checking…</p><canvas id="demo"></canvas><div id="results"></div><script type="module">
+import { StaticCanvas, Rect } from 'fabric';
+import { renderElement } from '/src/editor/fabricAdapter.ts';
+const results = document.querySelector('#results');
+const check = (name, pass) => { const p = document.createElement('p'); p.textContent = `${pass ? 'PASS' : 'FAIL'}: ${name}`; results.append(p); if (!pass) throw Error(name); };
+try {
+ const source=document.createElement('canvas'); source.width=100; source.height=100;
+ const s=source.getContext('2d'); s.fillStyle='#ff0000'; s.beginPath(); s.arc(50,50,25,0,Math.PI*2); s.fill();
+ const canvas=new StaticCanvas('demo',{width:600,height:300,backgroundColor:'#ffffff',enableRetinaScaling:false});
+ const assets={}; const base={id:'image',name:'Image',type:'image',x:10,y:10,width:100,height:100,scaleX:1,scaleY:1,rotation:0,opacity:1,visible:true,locked:false};
+ for(const [i,mime] of ['image/png','image/webp','image/jpeg'].entries()) {
+   const blob=await new Promise(resolve=>source.toBlob(resolve,mime)); const id=`art-${i}`; assets[id]={id,name:id,blob,mimeType:mime,width:100,height:100};
+   const obj=await renderElement({...base,id,assetId:id,x:i*150+10,filters:{tint:'#00ff00'}},assets,new AbortController().signal); canvas.add(obj);
+ }
+ canvas.renderAll(); let data=canvas.getContext();
+ for(let i=0;i<3;i++) {const center=data.getImageData(i*150+60,60,1,1).data; check(`Recolor ${['PNG','WebP','JPEG'][i]}`,center[1]>240&&center[0]<10);}
+ check('PNG transparent margins', data.getImageData(15,15,1,1).data[0]>240);
+ const shadow=await renderElement({...base,id:'shadow',fit:'contain',assetId:'art-0',x:460,filters:{shadow:{color:'#000000',opacity:1,blur:0,offsetX:15,offsetY:0}}},assets,new AbortController().signal); canvas.add(shadow); canvas.renderAll();
+ check('Shadow follows visible contour', data.getImageData(545,60,1,1).data[0]<20);
+ check('Shadow leaves frame corner clear', data.getImageData(480,15,1,1).data[0]>240);
+ for(let x=0;x<300;x+=6)canvas.add(new Rect({left:x,top:150,width:3,height:130,fill:'#000000',strokeWidth:0}));
+ const behind=await renderElement({...base,id:'backdrop',assetId:'art-0',x:80,y:170,filters:{backdropBlur:8}},assets,new AbortController().signal); canvas.add(behind); canvas.renderAll();
+ const blurPixel=data.getImageData(90,175,1,1).data[0]; check('Backdrop blurs stripes through transparency',blurPixel>30&&blurPixel<220);
+ check('Backdrop keeps outside stripes sharp',data.getImageData(60,175,1,1).data[0]<10);
+ const exported=canvas.toCanvasElement(1); const exp=exported.getContext('2d').getImageData(90,175,1,1).data[0]; check('Backdrop included in exported canvas',exp>30&&exp<220);
+ const largeExport=canvas.toCanvasElement(2); const large=largeExport.getContext('2d').getImageData(180,350,1,1).data[0]; check('Backdrop scales with export resolution',large>30&&large<220);
+ const blurred=await renderElement({...base,id:'blur',assetId:'art-0',x:350,y:170,filters:{blur:0.3}},assets,new AbortController().signal); canvas.add(blurred); canvas.renderAll();
+ check('Image blur softens visible edges',data.getImageData(375,220,1,1).data[1]>10&&data.getImageData(375,220,1,1).data[1]<245);
+ document.querySelector('#status').textContent='All browser checks passed';
+} catch(e){document.querySelector('#status').textContent=`ERROR: ${e.message}`;}
+</script></body></html>

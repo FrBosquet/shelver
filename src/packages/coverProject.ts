@@ -2,10 +2,13 @@ import { strFromU8, strToU8, unzip, unzipSync, zip } from 'fflate'
 import type { AsyncZippable, Unzipped } from 'fflate'
 import { SCHEMA_VERSION } from '../domain/types'
 import type { Asset, PackageAsset, Project, ProjectPackage } from '../domain/types'
-import { isRecord, validAsset, validProject } from '../domain/validation'
+import { isRecord, supportedVersion, validAsset, validProject } from '../domain/validation'
+import { referencedAssetIds } from '../domain/composition'
+import { isSvgDocument, imageDimensions } from '../assets/imageDimensions'
+import { builtinAsset, bundledSvg } from '../assets/logoLibrary'
 
 export const PACKAGE_LIMITS = { archive: 100 * 1024 * 1024, expanded: 200 * 1024 * 1024, manifest: 2 * 1024 * 1024, assets: 256 }
-const extensions: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' }
+const extensions: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/svg+xml': 'svg' }
 
 async function digest(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))
@@ -13,12 +16,23 @@ async function digest(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
 }
 
 function checkSignature(bytes: Uint8Array, mimeType: string): boolean {
+  if (mimeType === 'image/svg+xml') return isSvgDocument(strFromU8(bytes))
   if (mimeType === 'image/png') return bytes.length >= 8 && [137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value)
   if (mimeType === 'image/jpeg') return bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
   return mimeType === 'image/webp' && bytes.length >= 12 && strFromU8(bytes.subarray(0, 4)) === 'RIFF' && strFromU8(bytes.subarray(8, 12)) === 'WEBP'
 }
 
 async function checkImage(asset: Asset): Promise<void> {
+  if (asset.mimeType === 'image/svg+xml') {
+    const logo = bundledSvg(await asset.blob.text())
+    if (asset.id.startsWith('builtin:')) {
+      if (!logo || logo.asset.width !== asset.width || logo.asset.height !== asset.height || asset.id !== logo.id) throw new Error(`Invalid SVG logo: ${asset.name}`)
+    } else if (typeof Image !== 'undefined') {
+      const dimensions = await imageDimensions(asset.blob)
+      if (dimensions.width !== asset.width || dimensions.height !== asset.height) throw new Error(`Image dimensions do not match: ${asset.name}`)
+    }
+    return
+  }
   // Decode one image at a time, and release its pixels before checking the next.
   if (typeof createImageBitmap === 'function') {
     const bitmap = await createImageBitmap(asset.blob)
@@ -43,18 +57,19 @@ export async function exportCoverProject(project: Project, assets: Record<string
   const snapshot = structuredClone(project)
   if (!validProject(snapshot)) throw new Error('This project cannot be exported because its composition is invalid.')
   if (snapshot.composition.format.unit !== 'px') throw new Error('This build only supports digital canvas dimensions.')
-  const ids = [...new Set(snapshot.composition.elements.flatMap((element) => element.type === 'image' ? [element.assetId] : []))]
+  const ids = referencedAssetIds(snapshot)
   if (ids.length > PACKAGE_LIMITS.assets) throw new Error('A project package can contain up to 256 images.')
   const files: AsyncZippable = {}
   const packaged: PackageAsset[] = []
   let total = 0
   for (const [index, id] of ids.entries()) {
-    const asset = Object.hasOwn(assets, id) ? assets[id] : undefined
+    const asset = builtinAsset(id) ?? (Object.hasOwn(assets, id) ? assets[id] : undefined)
     if (!validAsset(asset) || !Object.hasOwn(extensions, asset.mimeType)) throw new Error(`Missing or unsupported artwork: ${id}`)
     total += asset.blob.size
     if (total > PACKAGE_LIMITS.archive) throw new Error('This project is too large for a 100 MiB package.')
     const bytes = new Uint8Array(await asset.blob.arrayBuffer())
     if (!checkSignature(bytes, asset.mimeType)) throw new Error(`Invalid artwork: ${asset.name}`)
+    if (asset.mimeType === 'image/svg+xml') await checkImage(asset)
     const path = `assets/${index}.${extensions[asset.mimeType]}`
     files[path] = [bytes, { level: 0 }]
     const descriptor = { id: asset.id, name: asset.name, mimeType: asset.mimeType, width: asset.width, height: asset.height, path, size: bytes.length, sha256: await digest(bytes) }
@@ -81,7 +96,7 @@ function unpack(bytes: Uint8Array): Promise<Unzipped> {
     total += file.originalSize
     if (paths.has(file.name)) issue = 'The package contains duplicate files.'
     paths.add(file.name)
-    if (file.name !== 'manifest.json' && !/^assets\/\d+\.(png|jpg|webp)$/.test(file.name)) issue = 'The package contains an unsupported file path.'
+    if (file.name !== 'manifest.json' && !/^assets\/\d+\.(png|jpg|webp|svg)$/.test(file.name)) issue = 'The package contains an unsupported file path.'
     if (paths.size > PACKAGE_LIMITS.assets + 1 || total > PACKAGE_LIMITS.expanded) issue = 'The package exceeds the import limits.'
     if (file.name === 'manifest.json' && file.originalSize > PACKAGE_LIMITS.manifest) issue = 'The project manifest exceeds 2 MiB.'
     return false
@@ -100,7 +115,7 @@ function validDescriptor(value: unknown): value is PackageAsset {
     && typeof value.height === 'number' && Number.isInteger(value.height) && value.height > 0 && value.height <= 16000
     && value.width * value.height <= 64_000_000
     && typeof value.size === 'number' && Number.isInteger(value.size) && value.size > 0 && value.size <= PACKAGE_LIMITS.expanded
-    && typeof value.path === 'string' && /^assets\/\d+\.(png|jpg|webp)$/.test(value.path)
+    && typeof value.path === 'string' && /^assets\/\d+\.(png|jpg|webp|svg)$/.test(value.path)
     && typeof value.sha256 === 'string' && /^[0-9a-f]{64}$/.test(value.sha256)
 }
 
@@ -113,8 +128,9 @@ export async function importCoverProject(file: Blob): Promise<{ project: Project
   try { manifest = JSON.parse(strFromU8(files['manifest.json'])) }
   catch { throw new Error('The project manifest is not valid JSON.') }
   if (!isRecord(manifest) || manifest.type !== 'shelver-project') throw new Error('This is not a Shelver project package.')
-  if (manifest.schemaVersion !== SCHEMA_VERSION) throw new Error('This project package uses an unsupported version.')
+  if (!supportedVersion(manifest.schemaVersion)) throw new Error('This project package uses an unsupported version.')
   if (!validProject(manifest.project) || !Array.isArray(manifest.assets) || !manifest.assets.every(validDescriptor)) throw new Error('The project manifest contains invalid composition or artwork data.')
+  if (manifest.schemaVersion < manifest.project.schemaVersion) throw new Error('The project schema exceeds its package version.')
   if (manifest.project.composition.format.unit !== 'px') throw new Error('This build only supports digital canvas dimensions.')
   const assets: Asset[] = []
   const ids = new Set<string>()
@@ -131,7 +147,7 @@ export async function importCoverProject(file: Blob): Promise<{ project: Project
     assets.push(asset)
   }
   if (Object.keys(files).some((path) => !paths.has(path))) throw new Error('The package contains files not listed in its manifest.')
-  const referenced = new Set(manifest.project.composition.elements.flatMap((element) => element.type === 'image' ? [element.assetId] : []))
+  const referenced = new Set(referencedAssetIds(manifest.project))
   if ([...referenced].some((id) => !ids.has(id))) throw new Error('The package is missing artwork required by this cover.')
   if ([...ids].some((id) => !referenced.has(id))) throw new Error('The package contains artwork not used by this cover.')
   return { project: manifest.project, assets }

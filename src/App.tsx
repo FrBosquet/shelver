@@ -1,19 +1,24 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import type { Asset, Element } from './domain/types'
+import type { Asset, CoverDesign, Element } from './domain/types'
 import { useWorkspace } from './storage/useWorkspace'
+import { TemplateInspector } from './editor/TemplateInspector'
 
 const Editor = lazy(() => import('./editor/Editor').then((module) => ({ default: module.Editor })))
 
 export function App() {
   const { projects, assets, loaded, status, error, history, store } = useWorkspace()
+  const [inspectorHost, setInspectorHost] = useState<HTMLDivElement | null>(null)
+  const [selectedBlock, setSelectedBlock] = useState<{ projectId: string; id: string; request: number } | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
   const [zooms, setZooms] = useState<Record<string, number>>({})
   const [packageBusy, setPackageBusy] = useState<'import' | 'export' | null>(null)
   const [packageError, setPackageError] = useState<string | null>(null)
   const [packageDownload, setPackageDownload] = useState<{ url: string; filename: string } | null>(null)
   const importInput = useRef<HTMLInputElement>(null)
+  const templates = useRef<HTMLElement>(null)
   const activeProject = projects.find((project) => project.id === activeId)
-  const statusText = { loading: 'Loading library…', saving: 'Saving…', saved: 'Saved locally', error: loaded ? 'Changes not saved' : 'Library unavailable' }[status]
+  const statusText = { loading: 'Loading library…', pending: 'Changes pending', saving: 'Saving…', saved: 'Saved locally', error: loaded ? 'Changes not saved' : 'Library unavailable' }[status]
 
   useEffect(() => () => { if (packageDownload) URL.revokeObjectURL(packageDownload.url) }, [packageDownload])
 
@@ -46,9 +51,18 @@ export function App() {
     } finally { setPackageBusy(null) }
   }
 
-  function newProject() {
-    const id = store.create()
+  function newProject(steam = false) {
+    const id = steam ? store.createSteam() : store.create()
     if (id) setActiveId(id)
+  }
+
+  function updateDesign(update: (design: CoverDesign) => void, newAssets: Asset[] = [], group?: string) {
+    if (!activeId) return
+    const project = store.getSnapshot().projects.find((p) => p.id === activeId)
+    if (!project?.composition.design) return
+    const next = structuredClone(project.composition.design)
+    update(next)
+    store.updateDesign(activeId, next, newAssets, group)
   }
 
   function changeElements(projectId: string, elements: Element[], asset?: Asset, group?: string) {
@@ -87,29 +101,46 @@ export function App() {
             <button disabled={Boolean(packageBusy)} onClick={() => void exportProject()}>{packageBusy === 'export' ? 'Preparing backup…' : 'Export project'}</button>
           </div>
           <Suspense fallback={<p className="loading-message" role="status">Opening your workspace…</p>}>
-            <div className="editor-workspace">
-            <Editor key={`${activeProject.id}:${history[activeProject.id]?.revision ?? 0}`} project={activeProject} assets={assets}
+            <div className={`editor-workspace${activeProject.composition.design ? ' design-workspace' : ''}`}>
+            <Editor key={`${activeProject.id}:${history[activeProject.id]?.revision ?? 0}`} project={activeProject} assets={assets} onUploadAssets={(uploaded) => store.addProjectAssets(activeProject.id, uploaded)}
+              inspectorHost={inspectorHost} selectedBlockId={selectedBlock?.projectId === activeProject.id ? selectedBlock.id : ''}
+              onSelectBlock={(id) => setSelectedBlock((current) => ({ projectId: activeProject.id, id, request: (current?.request ?? 0) + 1 }))}
               initialZoom={zooms[activeProject.id]} onZoomChange={(zoom) => setZooms((current) => ({ ...current, [activeProject.id]: zoom }))}
               canUndo={history[activeProject.id]?.canUndo ?? false} canRedo={history[activeProject.id]?.canRedo ?? false}
               onUndo={() => store.undo(activeProject.id)} onRedo={() => store.redo(activeProject.id)}
+              onResetElement={(id) => {
+                const next = structuredClone(activeProject.composition.design!)
+                delete next.overrides[id]
+                store.updateDesign(activeProject.id, next, [], undefined, false)
+              }}
               onChange={(elements, asset, group) => changeElements(activeProject.id, elements, asset, group)} />
+            {activeProject.composition.design && <TemplateInspector onElementControlsHost={setInspectorHost} key={activeProject.id} project={activeProject} assets={assets} onUploadAssets={(uploaded) => store.addProjectAssets(activeProject.id, uploaded)} selectionRequest={selectedBlock?.request ?? 0} selectedBlockId={selectedBlock?.projectId === activeProject.id ? selectedBlock.id : ''} onSelectBlock={(id) => setSelectedBlock((current) => ({ projectId: activeProject.id, id, request: (current?.request ?? 0) + 1 }))} onChange={updateDesign} onFormat={(format) => store.changeFormat(activeProject.id, format)} onInteractionStart={store.beginInteraction} onInteractionEnd={store.endInteraction} />}
             </div>
           </Suspense>
         </> : <div className="library">
-          <div className="page-heading"><div><p className="eyebrow">THE COLLECTION STARTS HERE</p><h1>Your games.<br />Your shelf.</h1><p className="intro">Turn your artwork into covers worth keeping.<br />A little space for your collection, made by you.</p></div><button className="primary new-cover" onClick={newProject}>+ New cover</button></div>
+          <div className="page-heading"><div><p className="eyebrow">THE COLLECTION STARTS HERE</p><h1>Your games.<br />Your shelf.</h1><p className="intro">Turn your artwork into covers worth keeping.<br />A little space for your collection, made by you.</p></div><button className="primary new-cover" onClick={() => templates.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>+ New cover</button></div>
           {projects.length > 0 && <section className="project-section" aria-label="Your covers">
             <div className="section-heading"><h2>Your covers</h2><span>{projects.length} {projects.length === 1 ? 'project' : 'projects'}</span></div>
             <div className="project-grid">{projects.map((project) => <article className="project-card" key={project.id}>
               <button className="project-preview" onClick={() => setActiveId(project.id)} aria-label={`Open ${project.name}`}><span>PC</span><strong>{project.name || 'Untitled cover'}</strong><small>SHELVER COLLECTION</small></button>
               <div className="project-meta"><button onClick={() => setActiveId(project.id)}>{project.name || 'Untitled cover'}</button><button className="duplicate-button" onClick={() => store.duplicate(project.id)} aria-label={`Duplicate ${project.name}`}>Duplicate</button></div>
+              {deleteId === project.id ? <div className="delete-confirmation" role="group" aria-label={`Delete ${project.name}`}>
+                <p>Delete this cover? This cannot be undone.</p>
+                <button className="delete-button" onClick={() => { store.deleteProject(project.id); setDeleteId(null) }}>Delete cover</button>
+                <button onClick={() => setDeleteId(null)}>Cancel</button>
+              </div> : <button className="delete-button" aria-label={`Delete ${project.name || 'Untitled cover'}`} onClick={() => setDeleteId(project.id)}>Delete</button>}
               <p className="project-date">Updated {new Date(project.updatedAt).toLocaleString()}</p>
             </article>)}</div>
           </section>}
-          <section aria-label="Starter template">
-            <div className="section-heading"><h2>Start with a format</h2><span>01 / STARTER TEMPLATE</span></div>
-            <button className="template-card" onClick={newProject}>
+          <section ref={templates} aria-label="Cover templates">
+            <div className="section-heading"><h2>Choose a style</h2><span>02 / STARTER TEMPLATES</span></div>
+            <button className="template-card steam-template" aria-label="Create Steam editorial cover" onClick={() => newProject(true)}>
+              <div className="template-illustration" aria-hidden="true"><div className="mini-back"><i /><i /><i /><div className="mini-footer">PC · REQUIREMENTS · PEGI</div></div><div className="mini-spine" /><div className="mini-front"><small>STEAM</small><span>YOUR<br />NEXT<br />ADVENTURE.</span><small>ARTWORK · GAME LOGO</small></div></div>
+              <div className="template-copy"><span className="tag">STEAM / PC</span><h3>A structure for your story.</h3><p>Configurable spine, screenshots, requirements, rating and footer. Shared styles and a format you can change.</p><span className="template-link">Create Steam cover <span>↗</span></span></div>
+            </button>
+            <button className="template-card blank-template" aria-label="Create blank cover" onClick={() => newProject()}>
               <div className="template-illustration" aria-hidden="true"><div className="mini-back"><i /><i /><i /></div><div className="mini-spine" /><div className="mini-front"><span>YOUR<br />NEXT<br />ADVENTURE.</span><small>PC / STEAM</small></div></div>
-              <div className="template-copy"><span className="tag">PC / STEAM</span><h3>A home for your next adventure.</h3><p>Front, spine, and back. One open canvas.<br />Bring the artwork; make the rest your own.</p><span className="template-link">Create a cover <span>↗</span></span></div>
+              <div className="template-copy"><span className="tag">FREE COMPOSITION</span><h3>Start with an open canvas.</h3><p>The original starter, with free text and artwork.</p><span className="template-link">Create blank cover <span>↗</span></span></div>
             </button>
           </section>
           <div className="library-footer"><span className="status-dot" /><p>Projects and artwork save automatically in this browser.<br />Export a .coverproject backup to keep a portable copy with all your images.</p></div>

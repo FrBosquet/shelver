@@ -32,6 +32,43 @@ const repositories: IndexedDbWorkspaceRepository[] = []
 afterEach(() => { for (const repository of repositories.splice(0)) repository.close() })
 
 describe('.coverproject packages', () => {
+  it('preserves raster image filters, backdrop blur and contour shadows in backups', async () => {
+    const { project, assets } = fixture()
+    const filters = { tint: '#abcdef', blur: 0.2, backdropBlur: 10, shadow: { color: '#123456', opacity: 0.5, blur: 12, offsetX: -3, offsetY: 4 } }
+    const image = project.composition.elements.find((element) => element.type === 'image')! as ImageElement
+    image.filters = filters
+    const imported = await importCoverProject(await exportCoverProject(project, assets))
+    expect((imported.project.composition.elements.find((element) => element.id === image.id) as ImageElement).filters).toEqual(filters)
+  })
+
+  it('round-trips custom SVG assets through project backups', async () => {
+    const { project, asset } = fixture()
+    const source = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1"><path d="M0 0h1v1H0z" fill="red"/></svg>'
+    const svg = { ...asset, name: 'custom.svg', mimeType: 'image/svg+xml', blob: new Blob([source], { type: 'image/svg+xml' }) }
+    const imported = await importCoverProject(await exportCoverProject(project, { [svg.id]: svg }))
+    expect(imported.assets[0].mimeType).toBe('image/svg+xml')
+    expect(await imported.assets[0].blob.text()).toBe(source)
+  })
+
+  it('preserves uploaded project assets that have not been placed on the canvas', async () => {
+    const { project, asset, assets } = fixture()
+    project.composition.elements = project.composition.elements.filter((element) => element.type !== 'image')
+    project.assetIds = [asset.id]
+    const imported = await importCoverProject(await exportCoverProject(project, assets))
+    expect(imported.assets).toHaveLength(1)
+    const repository = new IndexedDbWorkspaceRepository('unused-project-art', new IDBFactory())
+    repositories.push(repository)
+    const store = new WorkspaceStore(repository)
+    await store.load()
+    const id = store.importProject(imported.project, imported.assets)
+    const restored = store.getSnapshot().projects.find((item) => item.id === id)!
+    expect(restored.assetIds).toHaveLength(1)
+    expect(restored.assetIds![0]).not.toBe(asset.id)
+    expect(store.getSnapshot().assets[restored.assetIds![0]].name).toBe(asset.name)
+    await store.flush()
+    expect((await repository.load()).projects[0].assetIds).toEqual(restored.assetIds)
+  })
+
   it('round-trips compositions and binary artwork, including shared references', async () => {
     const { project, asset, assets } = fixture()
     const blob = await exportCoverProject(project, assets)
@@ -96,7 +133,7 @@ describe('.coverproject packages', () => {
   })
 
   it('rejects unsupported package versions', async () => {
-    const blob = await modifiedPackage((manifest) => { Object.assign(manifest, { schemaVersion: 2 }) })
+    const blob = await modifiedPackage((manifest) => { Object.assign(manifest, { schemaVersion: 999 }) })
     await expect(importCoverProject(blob)).rejects.toThrow('unsupported version')
   })
 
