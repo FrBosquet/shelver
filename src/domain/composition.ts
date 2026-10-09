@@ -138,16 +138,18 @@ export function composeDesign(project: Project): Project {
       case 'spine': {
         shape('background', 'spine')
         const fontScale = Math.min(w / 52, format.height / 960)
-        picture('platform-logo', 'platformLogo', 'Steam logo', w * 0.8, h * 0.04, h * 0.18, w * 0.6, true, steamLogoFor(colors.spine))
+        picture('platform-logo', 'platformLogo', 'Steam logo', w * 0.8, h * 0.02, h * 0.18, w * 0.6, true, steamLogoFor(colors.spine))
         result[result.length - 1].rotation = 90
+        ;(result[result.length - 1] as Extract<Element, { type: 'image' }>).focalX = 0
         if (design.images.gameLogo) {
           picture('game-logo', 'gameLogo', 'Game logo', w * 0.82, h * 0.29, h * 0.45, w * 0.64, true)
           result[result.length - 1].rotation = 90
         } else text('title', design.shared.title.replaceAll('\n', ' '), 'title', w * 0.8, h * 0.28, h * 0.48, w * 0.65, { fontSize: 28 * fontScale, fill: colors.onSpine, rotation: 90, textAlign: 'center' })
         if (design.images.publisherLogo) {
-          picture('publisher-logo', 'publisherLogo', 'Publisher logo', w * 0.8, h * 0.8, h * 0.16, w * 0.6, true)
+          picture('publisher-logo', 'publisherLogo', 'Publisher logo', w * 0.8, h * 0.82, h * 0.16, w * 0.6, true)
           result[result.length - 1].rotation = 90
-        } else text('publisher', design.shared.publisher, 'legal', w * 0.8, h * 0.79, h * 0.18, w * 0.65, { fontSize: 12 * fontScale, fill: colors.onSpine, rotation: 90 })
+          ;(result[result.length - 1] as Extract<Element, { type: 'image' }>).focalX = 1
+        } else text('publisher', design.shared.publisher, 'legal', w * 0.8, h * 0.8, h * 0.18, w * 0.65, { fontSize: 12 * fontScale, fill: colors.onSpine, rotation: 90, textAlign: 'right' })
         break
       }
     }
