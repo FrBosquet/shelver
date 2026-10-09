@@ -108,7 +108,7 @@ export function composeDesign(project: Project): Project {
         const items = block.items.length ? block.items : [{ id: 'player', title: 'SINGLE PLAYER', text: '', detail: '' }]
         result.push({ ...base('table', block.name), type: 'table', cells: [items.map((item) => item.title)],
           icons: [items.map((item) => tableIcons.find((icon) => icon.id === item.id)?.id ?? null)],
-          padding: 3, fill: colors.technical, textColor: colors.onTechnical, fontRole: 'technical', fontFamily: design.styles.fonts.technical, fontSize: design.styles.text.legal.size * typeScale, styleRef: 'legal' })
+          padding: 3, verticalAlign: 'middle', fill: colors.technical, textColor: colors.onTechnical, fontRole: 'technical', fontFamily: design.styles.fonts.technical, fontSize: design.styles.text.legal.size * typeScale, styleRef: 'legal' })
         break
       }
       case 'rating': {

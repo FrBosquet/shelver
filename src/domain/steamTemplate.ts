@@ -52,7 +52,7 @@ export function createSteamProject(format: Format = workingFormats[0]): Project 
       block('gallery', 'Screenshots & captions', 'gallery', 'back', 0.025, 0.385, 0.95, 0.18),
       block('review', 'Review quote', 'review', 'back', 0.07, 0.57, 0.86, 0.055),
       block('requirements', 'PC requirements', 'requirements', 'back', 0.025, 0.645, 0.95, 0.15),
-      block('features', 'Features & languages', 'features', 'back', 0.025, 0.795, 0.95, 0.06),
+      block('features', 'Features & languages', 'features', 'back', 0.025, 0.795, 0.95, 0.07),
       block('back-rating', 'Back rating', 'rating', 'back', 0.025, 0.87, 0.39, 0.105),
       block('back-publisher', 'Publisher & legal', 'publisher', 'back', 0.44, 0.87, 0.29, 0.105),
       block('qr', 'QR code', 'qr', 'back', 0.755, 0.875, 0.22, 0.095),
@@ -74,11 +74,10 @@ export function createSteamProject(format: Format = workingFormats[0]): Project 
     ['Almacenamiento', '4 GB de espacio disponible', '4 GB de espacio disponible'],
   ].map(([title, text, detail], index) => ({ id: `spec-${index}`, title, text, detail }))
   design.blocks.find((b) => b.id === 'features')!.items = [
-    { id: 'player', title: 'SINGLE PLAYER', text: '●', detail: '' },
-    { id: 'controller', title: 'CONTROLLER', text: '✚', detail: '' },
-    { id: 'achievements', title: 'ACHIEVEMENTS', text: '★', detail: '' },
-    { id: 'cloud', title: 'STEAM CLOUD', text: '☁', detail: '' },
-    { id: 'languages', title: 'TEXT: SPANISH\nVOICES: MULTIPLE', text: 'CC', detail: '' },
+    { id: 'clock', title: 'horas', text: '', detail: '' },
+    { id: 'star', title: '%', text: '', detail: '' },
+    { id: 'calendar', title: '01/26', text: '', detail: '' },
+    { id: 'controller', title: 'PC', text: '', detail: '' },
   ]
   const timestamp = new Date().toISOString()
   const project: Project = { schemaVersion: SCHEMA_VERSION, id: crypto.randomUUID(), name: 'Steam cover', platform: 'pc', templateId: design.templateId, templateVersion: 1,
