@@ -1,8 +1,8 @@
-import { Canvas2dFilterBackend, Group, Path, Rect } from 'fabric'
+import { Canvas2dFilterBackend, Group, Path, Pattern, Rect } from 'fabric'
 import { describe, expect, it } from 'vitest'
 import type { ShapeElement } from '../domain/types'
 import { qrMatrix } from '../domain/qr'
-import { renderElement, imageFilters, readElement } from './fabricAdapter'
+import { renderElement, imageFilters, readElement, attachImageFit } from './fabricAdapter'
 
 const shape: ShapeElement = {
   id: 'shape', name: 'Shape', type: 'shape', fill: '#ffffff',
@@ -107,4 +107,26 @@ describe('QR rendering', () => {
   const table = { ...shape, type: 'table' as const, width: 400, height: 80, cells: [['First', 'Second']], icons: [['player', 'controller']] as ('player' | 'controller')[][], fontSize: 14, textColor: '#000000', padding: 8 }
   const object = new Rect({ originX: 'left', originY: 'top', left: 40, top: 50, width: 400, height: 80, scaleX: 1.5, scaleY: 2.5 })
   expect(readElement(object, table)).toMatchObject({ width: 600, height: 200, scaleX: 1, scaleY: 1, fontSize: 14, padding: 8, icons: table.icons, x: 40, y: 50 })
+})
+
+
+describe('Image fit after resizing', () => {
+  it.each(['cover', 'contain'] as const)('keeps %s artwork proportional at the final frame size and during a drag', (fit) => {
+    const element = { ...shape, type: 'image' as const, assetId: 'art', fit }
+    const frame = new Rect({ width: 100, height: 100, scaleX: 3, scaleY: 2 })
+    const pattern = new Pattern({ source: {} as HTMLCanvasElement })
+    attachImageFit(frame, pattern, element, { width: 200, height: 100 })
+    const factor = fit === 'cover' ? 2 : 1.5
+    expect(pattern.patternTransform![0] * frame.scaleX).toBeCloseTo(factor)
+    expect(pattern.patternTransform![3] * frame.scaleY).toBeCloseTo(factor)
+    expect(pattern.offsetX * frame.scaleX).toBeCloseTo((300 - 200 * factor) / 2)
+    expect(pattern.offsetY * frame.scaleY).toBeCloseTo((200 - 100 * factor) / 2)
+    frame.set({ scaleX: 1, scaleY: 4 })
+    frame.fire('scaling')
+    const resizedFactor = fit === 'cover' ? 4 : 0.5
+    expect(pattern.patternTransform![0] * frame.scaleX).toBeCloseTo(resizedFactor)
+    expect(pattern.patternTransform![3] * frame.scaleY).toBeCloseTo(resizedFactor)
+    expect(pattern.offsetX * frame.scaleX).toBeCloseTo((100 - 200 * resizedFactor) / 2)
+    expect(pattern.offsetY * frame.scaleY).toBeCloseTo((400 - 100 * resizedFactor) / 2)
+  })
 })

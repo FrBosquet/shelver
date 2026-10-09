@@ -15,8 +15,11 @@ import { readElement, renderElement } from './fabricAdapter'
 import { AssetPicker } from './AssetPicker'
 import { ImageCropModal } from './ImageCropModal'
 import { sharedLogos } from '../assets/logoLibrary'
+import { printCover } from './printCover'
+import { caseFormats } from '../domain/caseFormats'
 
 type Props = {
+  onFormat: (format: Project['composition']['format']) => void
   onUploadAssets: (assets: Asset[]) => void
   inspectorHost: HTMLDivElement | null
   selectedBlockId: string
@@ -33,7 +36,7 @@ type Props = {
   onResetElement: (id: string) => void
 }
 
-export function Editor({ onUploadAssets, inspectorHost, selectedBlockId, onSelectBlock, project, assets, onChange, initialZoom, onZoomChange, canUndo, canRedo, onUndo, onRedo, onResetElement }: Props) {
+export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockId, onSelectBlock, project, assets, onChange, initialZoom, onZoomChange, canUndo, canRedo, onUndo, onRedo, onResetElement }: Props) {
   const canvasElement = useRef<HTMLCanvasElement>(null)
   const workspace = useRef<HTMLDivElement>(null)
   const canvas = useRef<Canvas | null>(null)
@@ -60,6 +63,8 @@ export function Editor({ onUploadAssets, inspectorHost, selectedBlockId, onSelec
   const [zoom, setZoom] = useState(0.6)
   const [exported, setExported] = useState<{ url: string; filename: string } | null>(null)
   const { format } = project.composition
+  const printWidth = format.printSize?.width
+  const printHeight = format.printSize?.height
 
   useEffect(() => { changeHandler.current = onChange }, [onChange])
 
@@ -446,6 +451,24 @@ export function Editor({ onUploadAssets, inspectorHost, selectedBlockId, onSelec
     sync(instance)
   }
 
+  async function print() {
+    const instance = canvas.current
+    if (!instance || !ready) return
+    setBusy(true)
+    setError(null)
+    try {
+      await document.fonts.ready
+      if (canvas.current !== instance) return
+      const source = instance.toDataURL({ format: 'png', multiplier: 1 / instance.getZoom() })
+      if (!printWidth || !printHeight) throw new Error('Choose a case format before printing.')
+      await printCover(source, printWidth, printHeight)
+    } catch (cause) {
+      if (mounted.current) setError(cause instanceof Error ? cause.message : 'Unable to print this cover.')
+    } finally {
+      if (mounted.current) setBusy(false)
+    }
+  }
+
   async function exportPng() {
     const instance = canvas.current
     if (!instance || !ready) return
@@ -569,7 +592,7 @@ export function Editor({ onUploadAssets, inspectorHost, selectedBlockId, onSelec
       <span>Canvas</span><strong>{format.width} × {format.height} px</strong>
       <span>Panels</span><strong>Back · Spine · Front</strong>
     </div>
-    <p className="small muted">Digital working dimensions. Physical case measurements will be validated before print export.</p>
+    <p className="small muted">Choose a case format to print at the exact case insert size.</p>
     </>}
 
   </section>
@@ -598,7 +621,12 @@ export function Editor({ onUploadAssets, inspectorHost, selectedBlockId, onSelec
             </select>
           </label>
           <button className="primary" disabled={!ready || busy} onClick={() => void exportPng()}>{busy ? 'Working…' : 'Export PNG ↗'}</button>
+          <button disabled={!ready || busy || !format.printSize} onClick={() => void print()}>Print</button>
         </div>
+      </div>
+      <div className="print-settings">
+        <label>Case format <select aria-label="Print case format" disabled={busy} value={caseFormats.some((item) => item.id === format.id) ? format.id : "legacy"} onChange={(event) => { const next = caseFormats.find((item) => item.id === event.target.value); if (next) onFormat(next) }}><option value="legacy" disabled>Choose case format</option>{caseFormats.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <span>{printWidth && printHeight ? `${printWidth} × ${printHeight} mm` : "Select a format to print at actual size"} · A4 landscape · Use 100% scale and disable headers and footers in the print dialog.</span>
       </div>
       {showLogos && <section id="shared-logo-library" className="logo-library" aria-label="Shared logo library">
         <div className="section-heading"><h2>Shared logos</h2><button onClick={() => setShowLogos(false)}>Close logos</button></div>

@@ -5,6 +5,7 @@ export type SchemaVersion = 1 | typeof SCHEMA_VERSION
 export type Platform = 'pc' | 'switch' | 'playstation' | 'xbox' | 'custom'
 export type Panel = { id: 'back' | 'spine' | 'front'; x: number; width: number }
 export type Format = {
+  printSize?: { width: number; height: number }
   id?: string
   name?: string
   unit: 'px' | 'mm'

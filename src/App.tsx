@@ -4,6 +4,7 @@ import { useWorkspace } from './storage/useWorkspace'
 import { TemplateInspector } from './editor/TemplateInspector'
 import { ProjectActions } from './ProjectActions'
 import { ProjectPreview } from './ProjectPreview'
+import { caseFormats } from './domain/caseFormats'
 
 const Editor = lazy(() => import('./editor/Editor').then((module) => ({ default: module.Editor })))
 
@@ -62,8 +63,11 @@ export function App() {
   }
 
   function newProject(steam = false) {
-    const id = steam ? store.createSteam() : store.create()
-    if (id) setActiveId(id)
+    const id = steam ? store.createSteam(caseFormats[0]) : store.create()
+    if (id) {
+      if (!steam) store.changeFormat(id, caseFormats[0])
+      setActiveId(id)
+    }
   }
 
   function updateDesign(update: (design: CoverDesign) => void, newAssets: Asset[] = [], group?: string) {
@@ -112,7 +116,7 @@ export function App() {
           </div>
           <Suspense fallback={<p className="loading-message" role="status">Opening your workspace…</p>}>
             <div className={`editor-workspace${activeProject.composition.design ? ' design-workspace' : ''}`}>
-            <Editor key={`${activeProject.id}:${history[activeProject.id]?.revision ?? 0}`} project={activeProject} assets={assets} onUploadAssets={(uploaded) => store.addProjectAssets(activeProject.id, uploaded)}
+            <Editor onFormat={(format) => store.changeFormat(activeProject.id, format)} key={`${activeProject.id}:${history[activeProject.id]?.revision ?? 0}`} project={activeProject} assets={assets} onUploadAssets={(uploaded) => store.addProjectAssets(activeProject.id, uploaded)}
               inspectorHost={inspectorHost} selectedBlockId={selectedBlock?.projectId === activeProject.id ? selectedBlock.id : ''}
               onSelectBlock={(id) => setSelectedBlock((current) => ({ projectId: activeProject.id, id, request: (current?.request ?? 0) + 1 }))}
               initialZoom={zooms[activeProject.id]} onZoomChange={(zoom) => setZooms((current) => ({ ...current, [activeProject.id]: zoom }))}

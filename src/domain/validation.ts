@@ -18,6 +18,7 @@ export function validProject(value: unknown): value is Project {
   const composition = value.composition
   if (typeof composition.background !== 'string' || !isRecord(composition.format) || !Array.isArray(composition.elements)) return false
   const format = composition.format
+  if (format.printSize !== undefined && (!isRecord(format.printSize) || ![format.printSize.width, format.printSize.height].every((size) => typeof size === 'number' && Number.isFinite(size) && size > 0 && size <= 1000))) return false
   if (composition.design !== undefined && (value.schemaVersion !== 2 || !validDesign(composition.design))) return false
   if (!['px', 'mm'].includes(String(format.unit))) return false
   if (![format.width, format.height].every((size) => typeof size === 'number' && Number.isFinite(size) && size > 0 && size <= 16000)) return false

@@ -4,7 +4,7 @@ import { tableMarkdown } from './tableMarkdown'
 import { pegiColor, pegiLayout } from '../domain/pegi'
 import { Canvas2dFilterBackend, filters, FabricImage, Gradient, Group, Path, loadSVGFromString, util, Pattern, Rect, Shadow, Textbox } from 'fabric'
 import type { FabricObject } from 'fabric'
-import type { Asset, Element, ImageFilters } from '../domain/types'
+import type { Asset, Element, ImageElement, ImageFilters } from '../domain/types'
 import { attachBackdropBlur } from './backdropBlur'
 import { builtinAsset } from '../assets/logoLibrary'
 
@@ -18,6 +18,36 @@ export function imageFilters(settings: ImageFilters = {}) {
     ...(settings.blur ? [new filters.Blur({ blur: settings.blur })] : []),
     ...(settings.invert ? [new filters.Invert({ alpha: false })] : []),
   ]
+}
+
+export function attachImageFit(frame: Rect, pattern: Pattern, element: ImageElement, asset: Pick<Asset, 'width' | 'height'>) {
+  const update = () => {
+    const scale = frame.getObjectScaling()
+    const sx = Math.abs(scale.x), sy = Math.abs(scale.y)
+    if (!sx || !sy) return
+    const width = frame.width * sx, height = frame.height * sy
+    const factor = (element.fit === 'cover'
+      ? Math.max(width / asset.width, height / asset.height)
+      : element.fit === 'contain' ? Math.min(width / asset.width, height / asset.height) : 1) * (element.imageScale ?? 1)
+    const offsetX = ((width - asset.width * factor) * (element.focalX ?? 0.5) + (element.offsetX ?? 0)) / sx
+    const offsetY = ((height - asset.height * factor) * (element.focalY ?? 0.5) + (element.offsetY ?? 0)) / sy
+    const x = factor / sx, y = factor / sy
+    if (pattern.offsetX !== offsetX || pattern.offsetY !== offsetY || pattern.patternTransform?.[0] !== x || pattern.patternTransform?.[3] !== y) {
+      pattern.offsetX = offsetX
+      pattern.offsetY = offsetY
+      pattern.patternTransform = [x, 0, 0, y, 0, 0]
+      frame.dirty = true
+    }
+  }
+  // Refit before rendering, including live drags, multi-selections and exports.
+  const render = frame.render
+  frame.render = function (ctx) {
+    update()
+    render.call(this, ctx)
+  }
+  frame.on('scaling', update)
+  frame.set({ noScaleCache: false })
+  update()
 }
 
 export async function renderElement(element: Element, assets: Record<string, Asset>, signal: AbortSignal, editableReplacement = false): Promise<FabricObject> {
@@ -147,15 +177,9 @@ export async function renderElement(element: Element, assets: Record<string, Ass
   if (element.type === 'image' && element.fit && object instanceof FabricImage) {
     const source = object.getElement()
     const asset = builtinAsset(element.assetId) ?? assets[element.assetId]
-    const factor = (element.fit === 'cover'
-      ? Math.max(element.width / asset.width, element.height / asset.height)
-      : element.fit === 'contain' ? Math.min(element.width / asset.width, element.height / asset.height) : 1) * (element.imageScale ?? 1)
-    const dx = (element.width - asset.width * factor) * (element.focalX ?? 0.5) + (element.offsetX ?? 0)
-    const dy = (element.height - asset.height * factor) * (element.focalY ?? 0.5) + (element.offsetY ?? 0)
-    const frame = new Rect({ ...object.toObject(), strokeWidth: 0, fill: new Pattern({
-      source, repeat: element.fit === 'repeat' ? 'repeat' : 'no-repeat',
-      offsetX: dx, offsetY: dy, patternTransform: [factor, 0, 0, factor, 0, 0],
-    }) })
+    const pattern = new Pattern({ source, repeat: element.fit === 'repeat' ? 'repeat' : 'no-repeat' })
+    const frame = new Rect({ ...object.toObject(), strokeWidth: 0, fill: pattern })
+    attachImageFit(frame, pattern, element, asset)
     object.dispose()
     object = frame
   }

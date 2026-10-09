@@ -3,7 +3,7 @@ import { ColorPicker } from './ColorPicker'
 import { colorLabels } from '../domain/colorLabels'
 import { AssetPicker } from './AssetPicker'
 import type { Asset, ColorRole, CoverDesign, DesignBlock, FontRole, Format, Project, TextRole } from '../domain/types'
-import { workingFormat, workingFormats } from '../domain/steamTemplate'
+import { caseFormats } from '../domain/caseFormats'
 import { useAutosaveInteraction } from './useAutosaveInteraction'
 import { sharedLogos } from '../assets/logoLibrary'
 
@@ -32,7 +32,6 @@ export function TemplateInspector({ onUploadAssets, onElementControlsHost, selec
   const setTab = (value: 'blocks' | 'styles' | 'format') => setTabState({ value, request: selectionRequest })
   const [role, setRole] = useState<TextRole>('caption')
   const [picker, setPicker] = useState<{ key: string; label: string } | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [colorDrafts, setColorDrafts] = useState<Partial<Record<ColorRole, string>>>({})
   const selectedElement = project.composition.elements.find((element) => element.id === selectedBlockId)
   const selectedTemplateBlock = design.blocks.find((b) => b.id === selectedBlockId)
@@ -84,7 +83,6 @@ export function TemplateInspector({ onUploadAssets, onElementControlsHost, selec
   return <aside className="template-inspector" aria-label="Template settings">
     <p className="eyebrow">STEAM · EDITORIAL</p><h2>Your cover, in detail.</h2>
     <div className="inspector-tabs" role="tablist" aria-label="Template settings tabs">{(['blocks', 'styles', 'format'] as const).map((value) => <button key={value} role="tab" aria-selected={tab === value} onClick={() => setTab(value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>
-    {error && <p className="error" role="alert">{error}</p>}
     <fieldset>
     {tab === 'blocks' && <section aria-label="Edit template blocks">
       {!isEditing ? <div className="block-list" aria-label="Cover blocks">
@@ -128,19 +126,8 @@ export function TemplateInspector({ onUploadAssets, onElementControlsHost, selec
       <label className="field">Color role<select aria-label="Text style color role" value={design.styles.text[role].color} onChange={(e) => onChange((next) => { next.styles.text[role].color = e.target.value as ColorRole })}>{(Object.keys(colorLabels) as ColorRole[]).map((key) => <option key={key} value={key}>{colorLabels[key]}</option>)}</select></label>
     </section>}
     {tab === 'format' && <section aria-label="Case format">
-      <p className="small muted">Change the case geometry while keeping the Steam style and your edits. These digital formats have no validated print dimensions.</p>
-      <label className="field">Working format<select aria-label="Working format" value={workingFormats.some((f) => f.id === project.composition.format.id) ? project.composition.format.id : 'custom-digital'} onChange={(e) => { const format = workingFormats.find((f) => f.id === e.target.value); if (format) onFormat(format) }}><option value="custom-digital" disabled>Custom digital format</option>{workingFormats.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</select></label>
-      <form key={`${project.composition.format.width}:${project.composition.format.height}`} onSubmit={(e) => {
-        e.preventDefault(); const values = new FormData(e.currentTarget)
-        const format = workingFormat(Number(values.get('face')), Number(values.get('height')), Number(values.get('spine')))
-        if (format.width > 16000 || format.width * format.height > 64_000_000) { setError('The format exceeds 16,000 px or 64 megapixels.'); return }
-        setError(null); onFormat(format)
-      }}>
-        <label className="field">Face width (px)<input aria-label="Face width" name="face" type="number" required min="100" max="7900" defaultValue={project.composition.format.panels.find((p) => p.id === 'front')!.width} /></label>
-        <label className="field">Height (px)<input aria-label="Format height" name="height" type="number" required min="100" max="16000" defaultValue={project.composition.format.height} /></label>
-        <label className="field">Spine width (px)<input aria-label="Spine width" name="spine" type="number" required min="12" max="2000" defaultValue={project.composition.format.panels.find((p) => p.id === 'spine')!.width} /></label>
-        <button className="primary" type="submit">Apply format</button>
-      </form>
+      <p className="small muted">Paper insert dimensions, including the spine. Print on A4 landscape at 100% scale.</p>
+      <label className="field">Case format<select aria-label="Working format" value={caseFormats.some((f) => f.id === project.composition.format.id) ? project.composition.format.id : 'legacy'} onChange={(e) => { const format = caseFormats.find((f) => f.id === e.target.value); if (format) onFormat(format) }}><option value="legacy" disabled>Previous working format</option>{caseFormats.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</select></label>
     </section>}
     </fieldset>
     {picker && <AssetPicker project={project} assets={assets} title={picker.label} onUpload={onUploadAssets} onClose={() => setPicker(null)} onSelect={(asset) => {
