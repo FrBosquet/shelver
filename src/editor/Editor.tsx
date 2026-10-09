@@ -100,12 +100,21 @@ export function Editor({ project, assets, onChange, initialZoom, onZoomChange, c
     }
   }, [])
 
+  const deleteSelection = useEffectEvent(() => removeSelected())
+
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.altKey || !(event.metaKey || event.ctrlKey) || !ready || busy) return
-      if (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]')) return
+      if (event.defaultPrevented || event.altKey || !ready || busy) return
+      if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target.closest('input, textarea, select'))) return
       const active = canvas.current?.getActiveObject()
       if (active instanceof Textbox && active.isEditing) return
+      if ((event.key === 'Delete' || event.key === 'Backspace') && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
+        if (!active) return
+        event.preventDefault()
+        deleteSelection()
+        return
+      }
+      if (!(event.metaKey || event.ctrlKey)) return
       const key = event.key.toLowerCase()
       const redo = key === 'y' || (key === 'z' && event.shiftKey)
       if (key !== 'z' && key !== 'y') return
