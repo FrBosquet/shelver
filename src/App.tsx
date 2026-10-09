@@ -84,7 +84,7 @@ export function App() {
         <div className="sidebar-bottom"><span className="save-indicator" data-status={status} role="status"><span className="status-dot" />{statusText}</span><p>This browser · This device</p></div>
       </aside>
       <main className={activeProject ? 'workspace-main' : undefined}>
-        <header className="topbar"><span>Personal cover studio</span><div className="toolbar-group"><button disabled={!loaded || Boolean(packageBusy)} onClick={() => importInput.current?.click()}>{packageBusy === 'import' ? 'Importing…' : 'Import project'}</button><span className="badge">EARLY BUILD</span></div></header>
+        {!activeProject && <header className="topbar"><span>Personal cover studio</span><div className="toolbar-group"><button disabled={!loaded || Boolean(packageBusy)} onClick={() => importInput.current?.click()}>{packageBusy === 'import' ? 'Importing…' : 'Import project'}</button><span className="badge">EARLY BUILD</span></div></header>}
         <input ref={importInput} type="file" accept=".coverproject" hidden onChange={(event) => {
           const file = event.target.files?.[0]
           if (file) void importProject(file)
