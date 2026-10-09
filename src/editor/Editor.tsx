@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { Canvas, FabricImage, Textbox } from 'fabric'
 import type { FabricObject } from 'fabric'
 import { createText } from '../domain/projects'
@@ -119,11 +119,63 @@ export function Editor({ project, assets, onChange, initialZoom, onZoomChange, c
   function setCanvasZoom(value: number) {
     const instance = canvas.current
     if (!instance) return
+    value = Math.min(2, Math.max(0.1, value))
     instance.setDimensions({ width: format.width * value, height: format.height * value })
     instance.setZoom(value)
     setZoom(value)
     onZoomChange(value)
   }
+
+  const gestureZoom = useEffectEvent((value: number) => {
+    if (ready && !busy) setCanvasZoom(value)
+  })
+
+  useEffect(() => {
+    const node = workspace.current
+    if (!node) return
+    let pinch: { distance: number; zoom: number } | null = null
+    const distance = (touches: TouchList) => Math.hypot(
+      touches[0].clientX - touches[1].clientX,
+      touches[0].clientY - touches[1].clientY,
+    )
+    const wheel = (event: WheelEvent) => {
+      // Trackpads report pinch gestures as Ctrl+wheel.
+      if (!event.ctrlKey || !canvas.current) return
+      event.preventDefault()
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? node.clientHeight : 1)
+      gestureZoom(canvas.current.getZoom() * Math.exp(-delta * 0.01))
+    }
+    const start = (event: TouchEvent) => {
+      if (event.touches.length !== 2 || !canvas.current) return
+      event.preventDefault()
+      event.stopPropagation()
+      pinch = { distance: distance(event.touches), zoom: canvas.current.getZoom() }
+      canvas.current.endCurrentTransform(event)
+    }
+    const move = (event: TouchEvent) => {
+      if (!pinch || event.touches.length !== 2) return
+      event.preventDefault()
+      event.stopPropagation()
+      if (pinch.distance > 0) gestureZoom(pinch.zoom * distance(event.touches) / pinch.distance)
+    }
+    const end = (event: TouchEvent) => {
+      if (!pinch) return
+      event.stopPropagation()
+      if (event.touches.length < 2) pinch = null
+    }
+    node.addEventListener('wheel', wheel, { passive: false })
+    node.addEventListener('touchstart', start, { passive: false, capture: true })
+    node.addEventListener('touchmove', move, { passive: false, capture: true })
+    node.addEventListener('touchend', end, true)
+    node.addEventListener('touchcancel', end, true)
+    return () => {
+      node.removeEventListener('wheel', wheel)
+      node.removeEventListener('touchstart', start, true)
+      node.removeEventListener('touchmove', move, true)
+      node.removeEventListener('touchend', end, true)
+      node.removeEventListener('touchcancel', end, true)
+    }
+  }, [])
 
   async function addText() {
     const instance = canvas.current
@@ -229,6 +281,7 @@ export function Editor({ project, assets, onChange, initialZoom, onZoomChange, c
         <div className="toolbar-group">
           <label className="zoom-control">Zoom
             <select aria-label="Zoom" value={zoom} onChange={(event) => setCanvasZoom(Number(event.target.value))}>
+              {![0.2, 0.3, 0.4, 0.6, 0.8, 1].includes(zoom) && <option value={zoom}>{Math.round(zoom * 100)}%</option>}
               <option value={0.2}>20%</option><option value={0.3}>30%</option>
               <option value={0.4}>40%</option><option value={0.6}>60%</option>
               <option value={0.8}>80%</option><option value={1}>100%</option>
