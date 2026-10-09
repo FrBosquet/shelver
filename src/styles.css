@@ -101,12 +101,27 @@ h1 { font-family: Georgia, 'Times New Roman', serif; font-weight: 400; font-size
 .project-card { min-width: 0; }
 .project-preview { display: flex; flex-direction: column; justify-content: space-between; text-align: left; width: 100%; height: 200px; color: #ddebd2; background: #364c38; border: 0; padding: 24px; }
 .project-preview:hover { background: #425c45; }
+.project-preview { position: relative; overflow: hidden; isolation: isolate; }
+.project-preview-artwork { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2; }
+.project-preview.has-artwork { color: #fff; }
+.project-preview.has-artwork::before { content: ''; position: absolute; inset: 0; background: #0009; z-index: -1; transition: background 150ms ease; }
+.project-preview.has-artwork:hover::before { background: #0008; }
 .project-preview > span { font-size: 9px; letter-spacing: 2px; }
 .project-preview strong { font-family: Georgia, serif; font-size: 25px; font-weight: 400; overflow-wrap: anywhere; }
 .project-preview small { font-size: 7px; letter-spacing: 1.6px; }
 .project-meta { display: flex; align-items: center; justify-content: space-between; padding-top: 10px; gap: 8px; }
 .project-meta button { background: none; border: 0; padding: 4px 0; text-align: left; font-size: 12px; }
-.project-meta .duplicate-button { color: #8a9382; font-size: 10px; }
+.project-meta > button { min-width: 0; overflow-wrap: anywhere; }
+.project-actions { position: relative; flex-shrink: 0; }
+.project-actions summary { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 5px; cursor: pointer; list-style: none; font-size: 24px; line-height: 1; }
+.project-actions summary::-webkit-details-marker { display: none; }
+.project-actions summary:hover, .project-actions[open] summary { background: #e8ecdf; }
+.project-actions summary:focus-visible { outline: 2px solid #425c45; outline-offset: 2px; }
+.project-actions-dropdown { position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; min-width: 140px; padding: 5px; border: 1px solid #dfe3d7; border-radius: 7px; background: #fbfbf6; box-shadow: 0 6px 18px #2f3c3120; }
+.project-actions-dropdown button { display: block; width: 100%; padding: 10px 12px; border-radius: 4px; }
+.project-actions-dropdown button:hover { background: #e8ecdf; }
+.project-actions-dropdown .delete-button { color: #a33d32; }
+.project-actions-dropdown .delete-button:hover { background: #f8e7e4; }
 .editor-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; padding: 26px 30px; border-bottom: 1px solid #e4e6de; }
 .back-button { border: 0; background: transparent; color: #778270; padding: 4px 0; }
 .project-name { background: transparent; border: 0; color: #2f3c31; width: 300px; min-width: 0; font-size: 20px; font-family: Georgia, serif; }
@@ -196,9 +211,13 @@ textarea { display: block; width: 100%; resize: vertical; padding: 11px; margin-
 
 .project-card > .delete-button, .delete-confirmation .delete-button { color: #a33d32; }
 .project-card > .delete-button { margin-top: 8px; padding: 4px 0; border: 0; background: none; font-size: 11px; }
-.delete-confirmation { margin-top: 10px; padding: 10px; border: 1px solid #e5c7c2; border-radius: 8px; }
-.delete-confirmation p { margin: 0 0 8px; font-size: 12px; }
-.delete-confirmation button + button { margin-left: 8px; }
+.delete-dialog { width: min(420px, calc(100vw - 40px)); padding: 28px; border: 1px solid #dfe3d7; border-radius: 12px; background: #fbfbf6; color: #2f3c31; box-shadow: 0 18px 60px #141a1930; }
+.delete-dialog::backdrop { background: #141a1980; }
+.delete-dialog h2 { margin: 0 0 16px; font-family: Georgia, serif; font-weight: 400; }
+.delete-dialog p { line-height: 1.6; overflow-wrap: anywhere; }
+.delete-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+.delete-dialog .delete-button { background: #a33d32; border-color: #a33d32; color: white; }
+.delete-dialog .delete-button:hover { background: #872f26; }
 
 .asset-picker { width: min(840px, calc(100vw - 48px)); max-height: 85vh; padding: 28px; border: 1px solid #d9ddd5; border-radius: 14px; background: #f6f5f0; color: #26322d; box-shadow: 0 24px 80px #141a1933; overflow-y: auto; }
 .asset-picker::backdrop { background: #141a1999; }

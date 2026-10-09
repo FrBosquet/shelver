@@ -2,6 +2,8 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import type { Asset, CoverDesign, Element } from './domain/types'
 import { useWorkspace } from './storage/useWorkspace'
 import { TemplateInspector } from './editor/TemplateInspector'
+import { ProjectActions } from './ProjectActions'
+import { ProjectPreview } from './ProjectPreview'
 
 const Editor = lazy(() => import('./editor/Editor').then((module) => ({ default: module.Editor })))
 
@@ -17,10 +19,18 @@ export function App() {
   const [packageDownload, setPackageDownload] = useState<{ url: string; filename: string } | null>(null)
   const importInput = useRef<HTMLInputElement>(null)
   const templates = useRef<HTMLElement>(null)
+  const deleteDialog = useRef<HTMLDialogElement>(null)
+  const projectToDelete = projects.find((project) => project.id === deleteId)
   const activeProject = projects.find((project) => project.id === activeId)
   const statusText = { loading: 'Loading library…', pending: 'Changes pending', saving: 'Saving…', saved: 'Saved locally', error: loaded ? 'Changes not saved' : 'Library unavailable' }[status]
 
   useEffect(() => () => { if (packageDownload) URL.revokeObjectURL(packageDownload.url) }, [packageDownload])
+
+  useEffect(() => {
+    const dialog = deleteDialog.current
+    if (projectToDelete && dialog && !dialog.open) dialog.showModal()
+    else if (!projectToDelete && dialog?.open) dialog.close()
+  }, [projectToDelete])
 
   async function importProject(file: File) {
     setPackageBusy('import')
@@ -122,13 +132,8 @@ export function App() {
           {projects.length > 0 && <section className="project-section" aria-label="Your covers">
             <div className="section-heading"><h2>Your covers</h2><span>{projects.length} {projects.length === 1 ? 'project' : 'projects'}</span></div>
             <div className="project-grid">{projects.map((project) => <article className="project-card" key={project.id}>
-              <button className="project-preview" onClick={() => setActiveId(project.id)} aria-label={`Open ${project.name}`}><span>PC</span><strong>{project.name || 'Untitled cover'}</strong><small>SHELVER COLLECTION</small></button>
-              <div className="project-meta"><button onClick={() => setActiveId(project.id)}>{project.name || 'Untitled cover'}</button><button className="duplicate-button" onClick={() => store.duplicate(project.id)} aria-label={`Duplicate ${project.name}`}>Duplicate</button></div>
-              {deleteId === project.id ? <div className="delete-confirmation" role="group" aria-label={`Delete ${project.name}`}>
-                <p>Delete this cover? This cannot be undone.</p>
-                <button className="delete-button" onClick={() => { store.deleteProject(project.id); setDeleteId(null) }}>Delete cover</button>
-                <button onClick={() => setDeleteId(null)}>Cancel</button>
-              </div> : <button className="delete-button" aria-label={`Delete ${project.name || 'Untitled cover'}`} onClick={() => setDeleteId(project.id)}>Delete</button>}
+              <ProjectPreview project={project} assets={assets} onOpen={() => setActiveId(project.id)} />
+              <div className="project-meta"><button onClick={() => setActiveId(project.id)}>{project.name || 'Untitled cover'}</button><ProjectActions name={project.name || 'Untitled cover'} onDuplicate={() => { store.duplicate(project.id); setDeleteId(null) }} onDelete={() => setDeleteId(project.id)} /></div>
               <p className="project-date">Updated {new Date(project.updatedAt).toLocaleString()}</p>
             </article>)}</div>
           </section>}
@@ -146,6 +151,17 @@ export function App() {
           <div className="library-footer"><span className="status-dot" /><p>Projects and artwork save automatically in this browser.<br />Export a .coverproject backup to keep a portable copy with all your images.</p></div>
         </div>}
       </main>
+      <dialog ref={deleteDialog} className="delete-dialog" aria-labelledby="delete-dialog-title" aria-describedby="delete-dialog-description" onCancel={() => setDeleteId(null)} onClose={() => setDeleteId(null)}>
+        <h2 id="delete-dialog-title">Delete cover?</h2>
+        <p id="delete-dialog-description">“{projectToDelete?.name || 'Untitled cover'}” will be permanently deleted. This cannot be undone.</p>
+        <div className="delete-dialog-actions">
+          <button autoFocus onClick={() => setDeleteId(null)}>Cancel</button>
+          <button className="delete-button" onClick={() => {
+            if (projectToDelete) store.deleteProject(projectToDelete.id)
+            setDeleteId(null)
+          }}>Delete cover</button>
+        </div>
+      </dialog>
     </div>
   )
 }
