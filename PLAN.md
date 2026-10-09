@@ -1,7 +1,7 @@
 # Shelver — Plan del proyecto
 
 Fecha: 9 de octubre de 2026
-Estado: planificación inicial; implementación pendiente.
+Estado: scaffolding inicial de la fase 1 en desarrollo.
 
 ## Objetivo
 
