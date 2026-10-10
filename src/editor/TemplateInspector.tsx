@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { FontPicker } from './FontPicker'
 import { colorLabels } from '../domain/colorLabels'
 import { AssetPicker } from './AssetPicker'
 import type { Asset, ColorRole, CoverDesign, DesignBlock, FontRole, Format, Project, TextRole } from '../domain/types'
@@ -21,7 +22,7 @@ type Props = {
 }
 
 
-const fontChoices = ['Georgia', 'Arial', 'Verdana', 'Times New Roman', 'Courier New']
+
 
 export function TemplateInspector({ onUploadAssets, onElementControlsHost, selectionRequest, selectedBlockId, onSelectBlock, project, assets, onChange, onFormat, onInteractionStart, onInteractionEnd }: Props) {
   const sliderInteraction = useAutosaveInteraction(onInteractionStart, onInteractionEnd)
@@ -116,7 +117,7 @@ export function TemplateInspector({ onUploadAssets, onElementControlsHost, selec
         <span className="style-color-swatch" style={{ backgroundColor: design.styles.colors[key] }}><input type="color" aria-label={colorLabels[key]} value={design.styles.colors[key]} onChange={(event) => onChange((next) => { next.styles.colors[key] = event.target.value }, [], `color:${key}`)} /></span>
         <span>{colorLabels[key]}</span>
       </label>)}</div>
-      {(Object.keys(design.styles.fonts) as FontRole[]).map((key) => <label className="field" key={key}>{key} font<select aria-label={`${key} font`} value={design.styles.fonts[key]} onChange={(e) => onChange((next) => { next.styles.fonts[key] = e.target.value })}>{fontChoices.map((font) => <option key={font}>{font}</option>)}</select></label>)}
+      {(Object.keys(design.styles.fonts) as FontRole[]).map((key) => <FontPicker key={key} label={`${key} font`} value={design.styles.fonts[key]} sample={selectedElement?.type === 'text' ? selectedElement.text : design.shared.title} onChange={(family) => onChange((next) => { next.styles.fonts[key] = family })} />)}
       <h3>Text styles</h3><label className="field">Shared text style<select aria-label="Shared text style" value={role} onChange={(e) => setRole(e.target.value as TextRole)}>{(Object.keys(design.styles.text) as TextRole[]).map((key) => <option key={key}>{key}</option>)}</select></label>
       <div className="form-row"><label className="field">Font role<select aria-label="Text style font role" value={design.styles.text[role].font} onChange={(e) => onChange((next) => { next.styles.text[role].font = e.target.value as FontRole })}>{(Object.keys(design.styles.fonts) as FontRole[]).map((key) => <option key={key}>{key}</option>)}</select></label>
       <label className="field">Size<input aria-label="Shared text size" type="number" min="1" max="200" value={design.styles.text[role].size} onChange={(e) => { const size = Number(e.target.value); if (size > 0 && size <= 200) onChange((next) => { next.styles.text[role].size = size }, [], `size:${role}`) }} /></label></div>

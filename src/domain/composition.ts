@@ -22,6 +22,12 @@ export function adaptElement(element: Element, placement: Placement, format: For
 export function composeDesign(project: Project): Project {
   let design = project.composition.design
   if (!design) return project
+  // Older templates used the header and dark-background text colors for the spine.
+  if (design.styles.colors.spine === undefined || design.styles.colors.onSpine === undefined) {
+    design = structuredClone(design)
+    design.styles.colors.spine ??= design.styles.colors.brand
+    design.styles.colors.onSpine ??= design.styles.colors.onTechnical
+  }
   if (design.blocks.some((block) => block.kind === 'barcode')) {
     design = structuredClone(design)
     for (const block of design.blocks) {
@@ -64,7 +70,7 @@ export function composeDesign(project: Project): Project {
         spine: { publisher: 'Spine publisher', title: 'Spine title' },
       }
       result.push({ ...base(key, labels[block.kind]?.[key] ?? `${block.name} · ${key}`, dx, dy, dw, dh), type: 'text', text: value,
-        fontRole: style.font, fontFamily: design.styles.fonts[style.font], fontSize: style.size * typeScale, fill: colors[style.color], fontWeight: style.weight, textAlign: style.align, lineHeight: 1.15, styleRef: role, ...extra })
+        fontRole: style.font, fontFamily: design.styles.fonts[style.font], fontSize: style.size * typeScale, fill: colors[style.color], textAlign: style.align, lineHeight: 1.15, styleRef: role, ...extra })
     }
     const picture = (key: string, assetKey: string, label: string, dx = 0, dy = 0, dw = w, dh = h, contain = false, defaultAssetId?: string) => {
       const image = design.images[assetKey] ?? { assetId: defaultAssetId ?? defaultImageAssetId, fit: defaultAssetId ? 'contain' as const : 'cover' as const, focalX: 0.5, focalY: 0.5 }
@@ -180,9 +186,12 @@ export function composeDesign(project: Project): Project {
       ...(override.fontRole ? { fontRole: override.fontRole } : override.fontFamily ? { fontRole: undefined } : {}),
       ...(override.text !== undefined ? { text: override.text } : {}), ...(override.fontFamily ? { fontFamily: override.fontFamily } : {}),
       ...(override.fontSize ? { fontSize: override.fontSize * (override.placement ? Math.min(format.height / override.placement.referenceHeight, format.panels.find((p) => p.id === override.placement!.panel)!.width / override.placement.referenceWidth) : 1) } : {}),
+      ...(override.shadow !== undefined ? { shadow: override.shadow ?? undefined } : {}),
+      ...(override.lineHeight !== undefined ? { lineHeight: override.lineHeight } : {}),
+      ...(override.charSpacing !== undefined ? { charSpacing: override.charSpacing } : {}),
       ...(override.fill ? { fill: override.fill } : {}) }
     if (resolved.type === 'shape' && override.fill) resolved = { ...resolved, fill: override.fill }
-    return { ...resolved, visible: !override.hidden }
+    return { ...resolved, name: override.name ?? resolved.name, opacity: override.opacity ?? resolved.opacity, visible: !override.hidden }
   })
   elements.push(...design.extras.map(({ element, placement }) => adaptElement(element, placement, format)))
   for (const element of elements) {
@@ -216,7 +225,9 @@ export function captureDesignEdits(project: Project, elements: Element[]): Proje
     const override: ElementOverride = design.overrides[previous.id] ?? {}
     if (!next) { override.hidden = true; design.overrides[previous.id] = override; continue }
     if (next.visible !== previous.visible) override.hidden = !next.visible
-    if (next.type !== previous.type || override.replacement || (next.type === 'qr' && previous.type === 'qr' && next.url !== previous.url) || (next.type === 'table' && previous.type === 'table' && JSON.stringify(next) !== JSON.stringify(previous)) || (next.type === 'image' && previous.type === 'image' && ['filters', 'fit', 'imageScale', 'offsetX', 'offsetY', 'focalX', 'focalY'].some((key) => next[key as keyof typeof next] !== previous[key as keyof typeof previous]))) {
+    if (next.opacity !== previous.opacity) override.opacity = next.opacity
+    if (next.name !== previous.name) override.name = next.name
+    if (next.type !== previous.type || override.replacement || (next.type === 'text' && previous.type === 'text' && (next.textAlign !== previous.textAlign || next.verticalAlign !== previous.verticalAlign)) || (next.type === 'qr' && previous.type === 'qr' && next.url !== previous.url) || (next.type === 'table' && previous.type === 'table' && JSON.stringify(next) !== JSON.stringify(previous)) || (next.type === 'image' && previous.type === 'image' && ['filters', 'fit', 'imageScale', 'offsetX', 'offsetY', 'focalX', 'focalY'].some((key) => next[key as keyof typeof next] !== previous[key as keyof typeof previous]))) {
       design.overrides[previous.id] = { replacement: structuredClone(next), placement: placementOf(next, format), hidden: !next.visible }
       continue
     }
@@ -234,6 +245,9 @@ export function captureDesignEdits(project: Project, elements: Element[]): Proje
       if (next.fill !== previous.fill) override.fill = next.fill
       if (next.fontRole !== previous.fontRole && next.fontRole) override.fontRole = next.fontRole
       if (next.fontFamily !== previous.fontFamily) override.fontFamily = next.fontFamily
+      if (JSON.stringify(next.shadow) !== JSON.stringify(previous.shadow)) override.shadow = next.shadow ?? null
+      if (next.lineHeight !== previous.lineHeight) override.lineHeight = next.lineHeight
+      if (next.charSpacing !== previous.charSpacing) override.charSpacing = next.charSpacing
       if (next.fontSize !== previous.fontSize) { override.fontSize = next.fontSize; override.placement ??= placementOf(next, format) }
     }
     if (Object.keys(override).length) design.overrides[previous.id] = override

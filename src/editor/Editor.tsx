@@ -1,11 +1,12 @@
 import { ColorPicker } from './ColorPicker'
 import { TableIcon } from './TableIcon'
+import { tableMarkdown } from './tableMarkdown'
 import { TableIconPicker } from './TableIconPicker'
 import { qrMatrix } from '../domain/qr'
 import { tableIcons } from '../domain/tableIcons'
 import { switchElementType } from '../domain/elementTypes'
 import { createElement, useEffect, useEffectEvent, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, BringToFront, SendToBack, Copy, ImagePlus, Crop, RotateCcw, RotateCw, RotateCcwSquare, Undo2 } from 'lucide'
+import { AlignLeft, AlignCenter, AlignRight, AlignJustify, ArrowUpToLine, ChevronsDownUp, ArrowDownToLine, ArrowDown, ArrowUp, BringToFront, SendToBack, Copy, ImagePlus, Crop, RotateCcw, RotateCw, RotateCcwSquare, Undo2 } from 'lucide'
 import { createPortal } from 'react-dom'
 import { ActiveSelection, Canvas, FabricImage, Textbox } from 'fabric'
 import type { FabricObject } from 'fabric'
@@ -64,7 +65,7 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
   const [error, setError] = useState<string | null>(null)
   const [selectedText, setSelectedText] = useState<string | null>(null)
   const [selection, setSelection] = useState<Element | null>(null)
-  const [warnings, setWarnings] = useState<string[]>([])
+  const [warnings, setWarnings] = useState<{ id: string; name: string }[]>([])
   const [hasSelection, setHasSelection] = useState(false)
   const [selectionCount, setSelectionCount] = useState(0)
   const [multipleElements, setMultipleElements] = useState<Element[]>([])
@@ -79,6 +80,11 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
   useEffect(() => { changeHandler.current = onChange }, [onChange])
 
   function sync(instance: Canvas, asset?: Asset, group?: string) {
+    setWarnings(instance.getObjects().flatMap((object) => {
+      const element = records.current.get(object)
+      return object instanceof Textbox && element?.type === 'text' && element.blockId && object.calcTextHeight() > readElement(object, element).height * 1.05
+        ? [{ id: element.id, name: element.name }] : []
+    }))
     const elements = instance.getObjects().flatMap((object) => {
       const original = records.current.get(object)
       return original ? [readElement(object, original)] : []
@@ -136,7 +142,7 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
         const selected = elementRecords.get(object)
         return selected && !selected.blockId
       }))
-      setSelectedText(active instanceof Textbox ? active.text : null)
+      setSelectedText(element?.type === 'text' ? element.text : active instanceof Textbox ? active.text : null)
       setSelection(element ?? null)
     }
     instance.on('selection:created', updateSelection)
@@ -156,7 +162,7 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
         instance.add(object)
       }
       instance.requestRenderAll()
-      setWarnings(items.filter(({ object, element }) => object instanceof Textbox && element.blockId && object.height > element.height * 1.05).map(({ element }) => element.name))
+      setWarnings(items.filter(({ object, element }) => object instanceof Textbox && element.blockId && object.height > element.height * 1.05).map(({ element }) => ({ id: element.id, name: element.name })))
       setZoom(initialZoom)
       initial.current.onZoomChange(initialZoom)
       setReady(true)
@@ -407,6 +413,9 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
     const request = ++editRequest.current
     const current = readElement(active, records.current.get(active)!)
     if (preservePlacement) next = { ...next, x: current.x, y: current.y, width: current.width, height: current.height, scaleX: current.scaleX, scaleY: current.scaleY, rotation: current.rotation }
+    // Controlled inputs must accept edits synchronously to preserve the caret
+    // while the canvas replacement renders asynchronously.
+    setSelection(next)
     const index = instance.getObjects().indexOf(active)
     const object = await renderElement(next, assets, new AbortController().signal, true)
     if (canvas.current !== instance || instance.getActiveObject() !== active || request !== editRequest.current) { object.dispose(); return }
@@ -421,7 +430,6 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
     instance.setActiveObject(object)
     instance.renderOnAddRemove = renderOnAddRemove
     applyingSelection.current = false
-    setSelection(next)
     setSelectedText(next.type === 'text' ? next.text : null)
     setMultipleElements([next])
     replacingSelectedElement.current = false
@@ -448,6 +456,20 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
       sync(instance)
     } catch { if (mounted.current) setError('Unable to duplicate this element.') }
     finally { if (mounted.current) setBusy(false) }
+  }
+
+  function changeOpacity(value: number) {
+    const instance = canvas.current
+    if (!instance || busy || !Number.isFinite(value)) return
+    const objects = instance.getActiveObjects().filter((object) => records.current.has(object))
+    if (!objects.length) return
+    const opacity = Math.max(0, Math.min(1, value / 100))
+    for (const object of objects) object.set({ opacity })
+    instance.requestRenderAll()
+    const elements = objects.map((object) => readElement(object, records.current.get(object)!))
+    setMultipleElements(elements)
+    if (elements.length === 1) setSelection(elements[0])
+    sync(instance, undefined, `opacity:${elements.map((element) => element.id).sort().join(':')}`)
   }
 
   function changeRotation(angle: number) {
@@ -556,14 +578,19 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
     const instance = canvas.current
     const object = instance?.getActiveObject()
     if (!instance || !(object instanceof Textbox)) return
-    object.set({ text })
+    const original = records.current.get(object)
+    if (!original || original.type !== 'text') return
+    records.current.set(object, { ...original, text })
+    const markdown = tableMarkdown(text)
+    object.set({ text: markdown.text, styles: markdown.styles, fontWeight: 'normal' })
     object.setCoords()
     setSelectedText(text)
+    setSelection(readElement(object, records.current.get(object)!))
     instance.requestRenderAll()
     sync(instance, undefined, `text:${records.current.get(object)?.id}`)
   }
 
-  function changeTextStyle(property: 'fill' | 'fontFamily' | 'fontSize', value: string | number) {
+  function changeTextStyle(property: 'fill' | 'fontFamily' | 'fontSize' | 'lineHeight' | 'charSpacing', value: string | number) {
     const instance = canvas.current, object = instance?.getActiveObject()
     if (!instance || !(object instanceof Textbox)) return
     object.set({ [property]: value }); object.setCoords(); instance.requestRenderAll(); sync(instance)
@@ -744,8 +771,16 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
       <button onClick={() => changeImageFilter(null)}>Reset filters</button>
       <p className="small muted">The original assets stay unchanged.</p>
     </section>
+  const opacityElements = selectionCount > 1 ? multipleElements : selection ? [selection] : []
+  const opacityValue = Math.round((opacityElements[0]?.opacity ?? 1) * 100)
+  const mixedOpacity = opacityElements.some((element) => element.opacity !== opacityElements[0]?.opacity)
+  const opacityControl = <label className="field">Opacity · {mixedOpacity ? 'Mixed' : `${opacityValue}%`}
+    <input aria-label="Element opacity" aria-valuetext={mixedOpacity ? `Mixed opacity; ${opacityValue}% for the first element` : `${opacityValue}%`} type="range" min="0" max="100" step="1" value={opacityValue} disabled={busy} onChange={(event) => changeOpacity(event.target.valueAsNumber)} />
+  </label>
+
   const multipleControls = <section className="element-controls" aria-label="Selected elements settings">
     <p className="eyebrow">{selectionCount} ELEMENTS SELECTED</p>
+    {opacityControl}
     {commonType === 'image' ? imageFilterControls : commonType && ['text', 'shape', 'table'].includes(commonType) ? <>
       <div className="field">{commonType === 'shape' ? 'Color' : 'Text color'}{!commonValue('fill') && <span className="small muted">Mixed colors</span>}<ColorPicker label="Selected elements color" colors={project.composition.design?.styles.colors} value={commonValue('fill') || '#172129'} onChange={(color) => void changeCommonStyle('fill', color)} /></div>
       {(commonType === 'text' || commonType === 'table') && <label className="field">Font<select aria-label="Selected elements font" disabled={busy} value={commonValue('fontRole')} onChange={(event) => void changeCommonStyle('fontRole', event.target.value)}>
@@ -757,6 +792,7 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
   const elementControls = <section className="element-controls" aria-label="Selected element settings">
     <p className="eyebrow">SELECTED ELEMENT</p>
     <h3>{selection?.name ?? 'Make it yours.'}</h3>
+    {selection && <label className="field">Element name<input aria-label="Element name" value={selection.name} disabled={busy} onChange={(event) => void editElement({ ...selection, name: event.target.value })} /></label>}
     {selection && <div className="selection-styles" role="group" aria-label="Layer order">
       <div className="element-action-toolbar" role="toolbar" aria-label="Element actions">
       <div className="layer-order-actions" role="group" aria-label="Layer order">
@@ -788,6 +824,7 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
     {selection && <label className="field">Element type<select aria-label="Selected element type" value={selection.type} disabled={busy} onChange={(event) => void changeElementType(event.target.value as Element['type'])}>
       <option value="image">Image</option><option value="text">Text</option><option value="shape">Box</option><option value="table">Table</option><option value="rating">PEGI</option><option value="qr">QR code</option>
     </select></label>}
+    {selection && opacityControl}
     {selection?.type === 'image' && <div className="image-action-buttons image-primary-actions" role="group" aria-label="Image actions">
       <button disabled={busy} onClick={() => { const active = canvas.current?.getActiveObject(); if (active) imageTarget.current = readElement(active, selection); setShowAssets(true) }}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{ImagePlus.map(([tag, attrs], index) => createElement(tag, { ...attrs, key: index }))}</svg>Replace image</button>
       <button disabled={busy} onClick={() => { const active = canvas.current?.getActiveObject(); const asset = assets[selection.assetId]; if (active && asset) { imageTarget.current = readElement(active, selection); setCropAsset(asset) } }}><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{Crop.map(([tag, attrs], index) => createElement(tag, { ...attrs, key: index }))}</svg>Crop image</button>
@@ -819,13 +856,43 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
     {imageFilterControls}
     {selectedText !== null ? <label className="field">Selected text
       <textarea aria-label="Selected text" rows={7} value={selectedText} onChange={(event) => editText(event.target.value)} />
+      <span className="small muted">Markdown: **bold**, *italic*, # headings and - bullets. Edit the text here to control its formatting.</span>
     </label> : <p className="muted">{'Edit the selected element’s properties.'}</p>}
     {selection?.type === 'text' && selectedText !== null && <div className="selection-styles">
+      <div className="field"><span>Horizontal alignment</span><div className="layer-order-actions" role="group" aria-label="Text horizontal alignment">
+        {([['left', 'Left', AlignLeft], ['center', 'Center', AlignCenter], ['right', 'Right', AlignRight], ['balanced', 'Balanced', AlignJustify]] as const).map(([value, label, icon]) => <button key={value} className="layer-order-button" title={label} aria-label={`Align text ${label.toLowerCase()}`} aria-pressed={(selection.textAlign ?? 'left') === value} disabled={busy} onClick={() => void editElement({ ...selection, textAlign: value })}>
+          <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{icon.map(([tag, attrs], index) => createElement(tag, { ...attrs, key: index }))}</svg>
+        </button>)}
+      </div></div>
+      <div className="field"><span>Vertical alignment</span><div className="layer-order-actions" role="group" aria-label="Text vertical alignment">
+        {([['top', 'Top', ArrowUpToLine], ['middle', 'Middle', ChevronsDownUp], ['bottom', 'Bottom', ArrowDownToLine]] as const).map(([value, label, icon]) => <button key={value} className="layer-order-button" title={label} aria-label={`Align text ${label.toLowerCase()}`} aria-pressed={(selection.verticalAlign ?? 'top') === value} disabled={busy} onClick={() => void editElement({ ...selection, verticalAlign: value })}>
+          <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{icon.map(([tag, attrs], index) => createElement(tag, { ...attrs, key: index }))}</svg>
+        </button>)}
+      </div></div>
       <div className="field">Individual text color<ColorPicker label="Individual text color" colors={project.composition.design?.styles.colors} value={selection.fill.startsWith('#') ? selection.fill : '#172129'} onChange={(color) => changeTextStyle('fill', color)} /></div>
       <label className="field">Font<select aria-label="Individual font" value={selection.fontRole ?? 'body'} onChange={(event) => { const fontRole = event.target.value as FontRole; void editElement({ ...selection, fontRole, fontFamily: projectFonts[fontRole] }) }}>{fontOptions}</select></label>
+      <label className="field">Font size (px)<input aria-label="Individual font size" type="number" min="1" max="200" step="1" disabled={busy} value={selection.fontSize} onChange={(event) => { const fontSize = event.target.valueAsNumber; if (Number.isFinite(fontSize) && fontSize >= 1 && fontSize <= 200) changeTextStyle('fontSize', fontSize) }} /></label>
+      <label className="field">Leading (line height)<input aria-label="Text leading" type="number" min="0.1" max="10" step="0.05" disabled={busy} value={selection.lineHeight ?? 1.16} onChange={(event) => { const value = event.target.valueAsNumber; if (Number.isFinite(value) && value >= 0.1 && value <= 10) changeTextStyle('lineHeight', value) }} /></label>
+      <label className="field">Letter spacing (em)<input aria-label="Text letter spacing" type="number" min="-0.2" max="2" step="0.01" disabled={busy} value={(selection.charSpacing ?? 0) / 1000} onChange={(event) => { const value = event.target.valueAsNumber; if (Number.isFinite(value) && value >= -0.2 && value <= 2) changeTextStyle('charSpacing', value * 1000) }} /></label>
+      <label className="checkbox-field"><input aria-label="Text shadow" type="checkbox" disabled={busy} checked={Boolean(selection.shadow)} onChange={(event) => void editElement({ ...selection, shadow: event.target.checked ? { color: '#000000', opacity: 0.6, blur: 12, offsetX: 2, offsetY: 2 } : undefined })} />Text shadow</label>
+      {selection.shadow && <>
+        <div className="field">Shadow color<ColorPicker label="Text shadow color" colors={project.composition.design?.styles.colors} value={selection.shadow.color} onChange={(color) => void editElement({ ...selection, shadow: { ...selection.shadow!, color } })} /></div>
+        <label className="field">Shadow opacity<input aria-label="Text shadow opacity" disabled={busy} type="range" min="0" max="1" step="0.01" value={selection.shadow.opacity} onChange={(event) => void editElement({ ...selection, shadow: { ...selection.shadow!, opacity: event.target.valueAsNumber } })} /></label>
+        <label className="field">Shadow blur · {selection.shadow.blur} px<input aria-label="Text shadow blur" disabled={busy} type="range" min="0" max="100" step="1" value={selection.shadow.blur} onChange={(event) => void editElement({ ...selection, shadow: { ...selection.shadow!, blur: event.target.valueAsNumber } })} /></label>
+        <div className="form-row">{(['offsetX', 'offsetY'] as const).map((key) => <label className="field" key={key}>Shadow {key === 'offsetX' ? 'X' : 'Y'} (px)<input aria-label={`Text shadow ${key}`} disabled={busy} type="number" min="-200" max="200" value={selection.shadow![key]} onChange={(event) => { const value = event.target.valueAsNumber; if (Number.isFinite(value) && Math.abs(value) <= 200) void editElement({ ...selection, shadow: { ...selection.shadow!, [key]: value } }) }} /></label>)}</div>
+      </>}
       {project.composition.design && selection.blockId && <p className="small muted">Shared style: {selection.styleRef}. Edits here override this element.</p>}
     </div>}
-    {selection?.type === 'shape' && <div className="field">Box color<ColorPicker label="Box color" colors={project.composition.design?.styles.colors} value={selection.fill} onChange={(color) => void editElement({ ...selection, fill: color })} /></div>}
+    {selection?.type === 'shape' && <>
+      <div className="field">Box color<ColorPicker label="Box color" colors={project.composition.design?.styles.colors} value={selection.fill} onChange={(color) => void editElement({ ...selection, fill: color })} /></div>
+      <div className="box-fill-toggle" role="group" aria-label="Box fill mode">
+        {(['solid', 'linear', 'radial'] as const).map((mode) => <button key={mode} type="button" aria-pressed={(selection.fillMode ?? (selection.gradientTo ? 'linear' : 'solid')) === mode} disabled={busy} onClick={() => void editElement({ ...selection, fillMode: mode, ...(mode !== 'solid' ? { gradientTo: selection.gradientTo ?? '#ffffff' } : {}) })}>{mode === 'solid' ? 'Solid' : mode === 'linear' ? 'Linear' : 'Radial'}</button>)}
+      </div>
+      {(selection.fillMode ?? (selection.gradientTo ? 'linear' : 'solid')) !== 'solid' && <>
+        <div className="field">Destination color<ColorPicker label="Box destination color" colors={project.composition.design?.styles.colors} value={selection.gradientTo ?? '#ffffff'} onChange={(color) => void editElement({ ...selection, gradientTo: color })} /></div>
+        <label className="field">Destination opacity · {Math.round((selection.gradientToOpacity ?? 1) * 100)}%<input aria-label="Box destination opacity" type="range" min="0" max="100" step="1" value={Math.round((selection.gradientToOpacity ?? 1) * 100)} disabled={busy} onChange={(event) => void editElement({ ...selection, gradientToOpacity: event.target.valueAsNumber / 100 })} /></label>
+      </>}
+    </>}
     {selection?.type === 'qr' && <label className="field">URL<input aria-label="QR URL" type="url" maxLength={2000} value={selection.url} placeholder="https://example.com" onChange={(event) => void editElement({ ...selection, url: event.target.value })} /><span className="small muted">The QR updates automatically. Enter a complete URL, including https://.</span>{!qrMatrix(selection.url) && <span role="status" className="error">Enter a valid HTTP or HTTPS URL (maximum 2,000 characters).</span>}</label>}
     {selection?.type === 'rating' && <label className="field">PEGI rating<select value={selection.rating} onChange={(event) => void editElement({ ...selection, rating: event.target.value as typeof selection.rating })}>{['3', '7', '12', '16', '18'].map((rating) => <option key={rating}>{rating}</option>)}</select><span className="small muted">Editable rating placeholder. Use an image for an official badge.</span></label>}
     {selection?.type === 'table' && <div className="selection-styles">
@@ -910,7 +977,7 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
       {cropAsset && <ImageCropModal asset={cropAsset} onClose={() => { imageTarget.current = null; setCropAsset(null) }} onApply={async (asset) => { await importImage(asset); setCropAsset(null) }} />}
       {showAssets && <AssetPicker project={project} assets={assets} onUpload={onUploadAssets} onClose={() => { imageTarget.current = null; setShowAssets(false) }} onSelect={(asset) => { setShowAssets(false); setCropAsset(asset) }} />}
       {error && <p className="error" role="alert">{error}</p>}
-      {warnings.length > 0 && <details className="layout-warning"><summary>{warnings.length} text {warnings.length === 1 ? 'area needs' : 'areas need'} more space</summary><p>{warnings.join(' · ')}</p></details>}
+      {warnings.length > 0 && <details className="layout-warning"><summary>{warnings.length} text {warnings.length === 1 ? 'area needs' : 'areas need'} more space</summary><ul>{warnings.map((warning) => <li key={warning.id}><button type="button" disabled={!ready || busy} aria-pressed={selectedBlockId === warning.id} onClick={() => onSelectBlock(warning.id)}>{warning.name}</button></li>)}</ul></details>}
       {exported && <p className="export-result" role="status">PNG ready · {format.width} × {format.height} px. <a href={exported.url} download={exported.filename}>Save PNG</a></p>}
       <div className="editor-body">
         <div className="canvas-workspace" ref={workspace} onPointerDown={(event) => {

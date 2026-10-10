@@ -25,6 +25,35 @@ function artwork(): Asset {
 }
 
 describe('Steam composition', () => {
+  it('persists text shadows and their removal in template overrides', () => {
+    const project = createSteamProject()
+    const target = project.composition.elements.find((element) => element.type === 'text')!
+    const shadow = { color: '#123456', opacity: 0.5, blur: 8, offsetX: -3, offsetY: 4 }
+    const edited = captureDesignEdits(project, project.composition.elements.map((element) => element.id === target.id ? { ...element, shadow } : element))
+    const reopened = composeDesign(JSON.parse(JSON.stringify(edited)))
+    expect(reopened.composition.elements.find((element) => element.id === target.id)).toMatchObject({ shadow })
+    expect(validProject(reopened)).toBe(true)
+    const removed = captureDesignEdits(reopened, reopened.composition.elements.map((element) => element.id === target.id ? { ...element, shadow: undefined } : element))
+    expect(removed.composition.design!.overrides[target.id].shadow).toBeNull()
+    expect(composeDesign(JSON.parse(JSON.stringify(removed))).composition.elements.find((element) => element.id === target.id)).toHaveProperty('shadow', undefined)
+    expect(validProject(removed)).toBe(true)
+    reopened.composition.design!.overrides[target.id].shadow!.blur = -1
+    expect(validProject(reopened)).toBe(false)
+  })
+
+  it('preserves text leading and spacing when recomposing and changing formats', () => {
+    const project = createSteamProject()
+    const target = project.composition.elements.find((element) => element.type === 'text')!
+    const edited = captureDesignEdits(project, project.composition.elements.map((element) => element.id === target.id ? { ...element, lineHeight: 1.7, charSpacing: -50 } : element))
+    const reopened = composeDesign(JSON.parse(JSON.stringify(edited)))
+    expect(reopened.composition.elements.find((element) => element.id === target.id)).toMatchObject({ lineHeight: 1.7, charSpacing: -50 })
+    const resized = composeDesign({ ...reopened, composition: { ...reopened.composition, format: workingFormats[1] } })
+    expect(resized.composition.elements.find((element) => element.id === target.id)).toMatchObject({ lineHeight: 1.7, charSpacing: -50 })
+    expect(validProject(resized)).toBe(true)
+    resized.composition.design!.overrides[target.id].charSpacing = Infinity
+    expect(validProject(resized)).toBe(false)
+  })
+
   it('preserves layer order across edits, reopening and project duplication', () => {
     const project = createSteamProject()
     const elements = [...project.composition.elements]
@@ -354,4 +383,31 @@ it('keeps image tint linked to a project color through edits and reload', () => 
   project = captureDesignEdits(project, project.composition.elements.map((element) => element.id === image.id ? { ...element, filters: { tint: '#112233' } } as ImageElement : element))
   project.composition.design!.styles.colors.brand = '#ffffff'
   expect(composeDesign(project).composition.elements.find((element) => element.id === image.id)).toMatchObject({ filters: { tint: '#112233' } })
+})
+
+
+describe('text alignment overrides', () => {
+  it('preserves both alignments after template recomposition and validation', () => {
+    const project = createSteamProject()
+    const text = project.composition.elements.find((element) => element.type === 'text')!
+    const elements = project.composition.elements.map((element) => element.id === text.id ? { ...element, textAlign: 'balanced' as const, verticalAlign: 'bottom' as const } : element)
+    const edited = captureDesignEdits(project, elements)
+    const restored = composeDesign(edited)
+    expect(restored.composition.elements.find((element) => element.id === text.id)).toMatchObject({ textAlign: 'balanced', verticalAlign: 'bottom' })
+    expect(validProject(restored)).toBe(true)
+  })
+})
+
+describe('element opacity', () => {
+  it('preserves opacity for every template element through recomposition and format changes', () => {
+    const project = createSteamProject()
+    const elements = project.composition.elements.map((element, index) => ({ ...element, opacity: index % 2 ? 0.37 : 0 }))
+    const edited = captureDesignEdits(project, elements)
+    expect(edited.composition.elements.map((element) => element.opacity)).toEqual(elements.map((element) => element.opacity))
+    const recomposed = composeDesign({ ...edited, composition: { ...edited.composition, format: workingFormats[1] } })
+    for (const element of elements) {
+      expect(recomposed.composition.elements.find((entry) => entry.id === element.id)?.opacity).toBe(element.opacity)
+    }
+    expect(validProject(recomposed)).toBe(true)
+  })
 })

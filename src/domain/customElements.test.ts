@@ -7,6 +7,24 @@ import { validProject } from './validation'
 import { exportCoverProject, importCoverProject } from '../packages/coverProject'
 
 describe('custom element types', () => {
+  it('preserves custom and template names through recomposition and package export without freezing shared content', async () => {
+    const project = createSteamProject()
+    const title = project.composition.elements.find((element) => element.type === 'text' && element.id.endsWith(':title'))!
+    const extra = { ...createText(), name: 'My caption' }
+    let edited = captureDesignEdits(project, [...project.composition.elements, extra])
+    edited = captureDesignEdits(edited, edited.composition.elements.map((element) => ({
+      ...element, name: element.id === title.id ? 'My title' : element.id === extra.id ? 'My notes' : element.name,
+    })))
+    edited.composition.design!.shared.title = 'Updated game title'
+    edited = composeDesign(edited)
+    expect(edited.composition.elements.find((element) => element.id === title.id)).toMatchObject({ name: 'My title', text: 'Updated game title' })
+    expect(edited.composition.elements.find((element) => element.id === extra.id)?.name).toBe('My notes')
+    expect(validProject(edited)).toBe(true)
+    const restored = await importCoverProject(await exportCoverProject(edited, {}))
+    expect(restored.project.composition.elements.find((element) => element.id === title.id)?.name).toBe('My title')
+    expect(restored.project.composition.elements.find((element) => element.id === extra.id)?.name).toBe('My notes')
+  })
+
   it('preserves editable tables, boxes and ratings through template composition and package export', async () => {
     const project = createSteamProject()
     const base = { ...createText(), x: 700, y: 200, width: 300, height: 150 }

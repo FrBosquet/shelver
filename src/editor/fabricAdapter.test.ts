@@ -1,8 +1,9 @@
-import { ActiveSelection, Canvas2dFilterBackend, FabricImage, Group, Path, Pattern, Rect } from 'fabric'
+import { ActiveSelection, Canvas2dFilterBackend, FabricImage, Gradient, Group, Path, Pattern, Rect } from 'fabric'
 import { describe, expect, it, vi } from 'vitest'
-import type { ShapeElement } from '../domain/types'
+import type { ShapeElement, TextElement } from '../domain/types'
+import type { Transform } from 'fabric'
 import { qrMatrix } from '../domain/qr'
-import { renderElement, imageFilters, readElement, attachImageFit } from './fabricAdapter'
+import { AlignedTextbox, renderElement, imageFilters, readElement, attachImageFit } from './fabricAdapter'
 import { selectionStyle } from './selectionStyle'
 
 const shape: ShapeElement = {
@@ -12,6 +13,48 @@ const shape: ShapeElement = {
 }
 
 describe('template canvas interaction', () => {
+  it('renders text Markdown without fixed template bold and preserves the source after moving', async () => {
+    const original: TextElement = { ...shape, type: 'text', text: 'Plain **bold**\n*italic*', fontSize: 24, fontFamily: 'Arial', fontWeight: 'bold', lineHeight: 1.5, charSpacing: 120, shadow: { color: '#123456', opacity: 0.5, blur: 8, offsetX: -3, offsetY: 4 } }
+    const split = vi.spyOn(AlignedTextbox.prototype, 'graphemeSplit').mockImplementation((text) => Array.from(text))
+    const measure = vi.spyOn(AlignedTextbox.prototype, '_measureChar').mockReturnValue({ width: 10, kernedWidth: 10 })
+    try {
+      const object = await renderElement(original, {}, new AbortController().signal) as AlignedTextbox
+      expect(object.text).toBe('Plain bold\nitalic')
+      expect(object.shadow).toMatchObject({ color: 'rgba(18,52,86,0.5)', blur: 8, offsetX: -3, offsetY: 4 })
+      expect(readElement(object, original)).toMatchObject({ shadow: original.shadow })
+      expect(object.toSVG()).toContain('feGaussianBlur')
+      expect(object.lineHeight).toBe(1.5)
+      expect(object.charSpacing).toBe(120)
+      object.set({ lineHeight: 1.8, charSpacing: -50 })
+      expect(object.fontWeight).toBe('normal')
+      expect(object.styles[0][6]).toEqual({ fontWeight: 'bold' })
+      expect(object.styles[0][0]).toBeUndefined()
+      expect(object.styles[1][0]).toEqual({ fontStyle: 'italic' })
+      object.set({ left: 50 })
+      expect(readElement(object, original)).toMatchObject({ text: original.text, x: 50, lineHeight: 1.8, charSpacing: -50 })
+      object.dispose()
+    } finally { split.mockRestore(); measure.mockRestore() }
+  })
+  it.each(['mt', 'mb'] as const)('resizes the text frame from %s without stretching text and preserves the opposite edge', async (corner) => {
+    const original: TextElement = { ...shape, type: 'text', blockId: 'description', text: 'First line\nSecond line', fontSize: 24, fontFamily: 'Arial', x: 40, y: 60, height: 100 }
+    const split = vi.spyOn(AlignedTextbox.prototype, 'graphemeSplit').mockImplementation((text) => Array.from(text))
+    const measure = vi.spyOn(AlignedTextbox.prototype, '_measureChar').mockReturnValue({ width: 10, kernedWidth: 10 })
+    try {
+    const object = await renderElement(original, {}, new AbortController().signal) as AlignedTextbox
+    const originY = corner === 'mb' ? 'top' : 'bottom'
+    const anchor = object.getPositionByOrigin('center', originY)
+    const transform = { target: object, corner, originX: 'center', originY } as unknown as Transform
+    const pointerY = corner === 'mb' ? anchor.y + 200 : anchor.y - 200
+    expect(object.controls[corner].actionHandler!({} as MouseEvent, transform, anchor.x, pointerY)).toBe(true)
+    expect(object.frameHeight).toBeCloseTo(200 - object.strokeWidth)
+    expect(object.getPositionByOrigin('center', originY)).toEqual(anchor)
+    expect(readElement(object, original)).toMatchObject({ height: object.frameHeight, scaleY: 1, scaleX: 1, fontSize: 24 })
+    object.initDimensions()
+    expect(object.height).toBe(object.frameHeight)
+    object.dispose()
+    } finally { split.mockRestore(); measure.mockRestore() }
+  })
+
   it.each(['cover', 'contain', 'repeat'] as const)('preserves the shared gizmo style on %s images', async (fit) => {
     const source = { width: 100, height: 100, src: 'fixture.png' } as HTMLImageElement
     const image = new FabricImage(source)
@@ -172,5 +215,27 @@ describe('Image fit after resizing', () => {
     expect(pattern.patternTransform![3] * frame.scaleY).toBeCloseTo(resizedFactor)
     expect(pattern.offsetX * frame.scaleX).toBeCloseTo((100 - 200 * resizedFactor) / 2)
     expect(pattern.offsetY * frame.scaleY).toBeCloseTo((400 - 100 * resizedFactor) / 2)
+  })
+})
+
+
+describe('box fills', () => {
+  it.each(['linear', 'radial'] as const)('renders a %s gradient with destination transparency and preserves it after transforms', async (fillMode) => {
+    const original: ShapeElement = { ...shape, fillMode, gradientTo: '#123456', gradientToOpacity: 0.25 }
+    const object = await renderElement(original, {}, new AbortController().signal)
+    expect(object.fill).toBeInstanceOf(Gradient)
+    const fill = object.fill as Gradient<'linear'> | Gradient<'radial'>
+    expect(fill.type).toBe(fillMode)
+    expect(fill.colorStops[1]).toMatchObject({ offset: 1, color: 'rgba(18,52,86,0.25)' })
+    object.set({ left: 20, angle: 45 })
+    expect(readElement(object, original)).toMatchObject({ fillMode, gradientTo: '#123456', gradientToOpacity: 0.25, x: 20, rotation: 45 })
+  })
+
+  it('keeps legacy gradients and allows switching them to solid', async () => {
+    const original: ShapeElement = { ...shape, gradientTo: '#000000' }
+    const legacy = await renderElement(original, {}, new AbortController().signal)
+    expect((legacy.fill as Gradient<'linear'>).type).toBe('linear')
+    const solid = await renderElement({ ...original, fillMode: 'solid' }, {}, new AbortController().signal)
+    expect(solid.fill).toBe(shape.fill)
   })
 })

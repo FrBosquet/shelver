@@ -1,13 +1,44 @@
+import { loadFont } from './fonts'
 import { qrMatrix } from '../domain/qr'
 import { tableIcons, tableIconSvg } from '../domain/tableIcons'
 import { tableMarkdown } from './tableMarkdown'
 import { pegiColor, pegiLayout } from '../domain/pegi'
-import { Canvas2dFilterBackend, filters, FabricImage, Gradient, Group, Path, loadSVGFromString, util, Pattern, Rect, Shadow, Textbox } from 'fabric'
+import { Canvas2dFilterBackend, Color, Control, controlsUtils, filters, FabricImage, Gradient, Group, Path, loadSVGFromString, util, Pattern, Rect, Shadow, Textbox } from 'fabric'
 import type { FabricObject } from 'fabric'
 import type { Asset, Element, ImageElement, ImageFilters } from '../domain/types'
 import { attachBackdropBlur } from './backdropBlur'
 import { builtinAsset } from '../assets/logoLibrary'
 import { selectionStyle } from './selectionStyle'
+
+// Keep a text frame editable while aligning its content inside the saved height.
+export class AlignedTextbox extends Textbox {
+  frameHeight = 0
+  verticalAlign: 'top' | 'middle' | 'bottom' = 'top'
+  balanced = false
+
+  initDimensions() {
+    super.initDimensions()
+    if (this.frameHeight) this.height = Math.max(this.frameHeight, this.height)
+  }
+
+  _getTopOffset() {
+    const free = Math.max(0, this.height - this.calcTextHeight())
+    return super._getTopOffset() + (this.verticalAlign === 'middle' ? free / 2 : this.verticalAlign === 'bottom' ? free : 0)
+  }
+
+  _wrapText(lines: string[], width: number): string[][] {
+    if (!this.balanced) return super._wrapText(lines, width)
+    const count = super._wrapText(lines, width).length
+    if (count <= lines.length) return super._wrapText(lines, width)
+    let low = 0, high = width
+    for (let iteration = 0; iteration < 12; iteration++) {
+      const candidate = (low + high) / 2
+      if (super._wrapText(lines, candidate).length > count) low = candidate
+      else high = candidate
+    }
+    return super._wrapText(lines, high)
+  }
+}
 
 export function imageFilters(settings: ImageFilters = {}) {
   return [
@@ -52,13 +83,45 @@ export function attachImageFit(frame: Rect, pattern: Pattern, element: ImageElem
 }
 
 export async function renderElement(element: Element, assets: Record<string, Asset>, signal: AbortSignal, editableReplacement = false): Promise<FabricObject> {
+  if (element.type === 'text' || element.type === 'table') await loadFont(element.fontFamily ?? 'Arial')
+  if (signal.aborted) throw new DOMException('Rendering cancelled', 'AbortError')
   if (element.type === 'table') element = { ...element, width: element.width * element.scaleX, height: element.height * element.scaleY, scaleX: 1, scaleY: 1 }
   let object: FabricObject
   if (element.type === 'text') {
-    object = new Textbox(element.text, { width: element.width, fontFamily: element.fontFamily, fontSize: element.fontSize, fill: element.fill,
-      fontWeight: element.fontWeight ?? 'normal', textAlign: element.textAlign ?? 'left', lineHeight: element.lineHeight ?? 1.16 })
+    const markdown = tableMarkdown(element.text)
+    const text = new AlignedTextbox(markdown.text, { width: element.width, fontFamily: element.fontFamily, fontSize: element.fontSize, fill: element.fill,
+      styles: markdown.styles, fontWeight: 'normal', textAlign: element.textAlign === 'balanced' ? 'center' : element.textAlign ?? 'left', lineHeight: element.lineHeight ?? 1.16, charSpacing: element.charSpacing ?? 0 })
+    if (element.shadow) {
+      const shadow = element.shadow
+      text.set({ shadow: new Shadow({ color: new Color(shadow.color).setAlpha(shadow.opacity).toRgba(), blur: shadow.blur, offsetX: shadow.offsetX, offsetY: shadow.offsetY }) })
+    }
+    text.set({ editable: false })
+    text.frameHeight = element.height
+    text.verticalAlign = element.verticalAlign ?? 'top'
+    text.balanced = element.textAlign === 'balanced'
+    text.initDimensions()
+    const resizeHeight = controlsUtils.wrapWithFireEvent('resizing', controlsUtils.wrapWithFixedAnchor((event, transform, x, y) => {
+      if (text.lockScalingY) return false
+      const changed = controlsUtils.changeObjectHeight(event, transform, x, y)
+      if (changed) {
+        text.frameHeight = text.height
+        text.initDimensions()
+        text.dirty = true
+      }
+      return changed
+    }))
+    for (const [key, y] of [['mt', -0.5], ['mb', 0.5]] as const) {
+      text.controls[key] = new Control({ x: 0, y, actionName: 'resizing', actionHandler: resizeHeight, cursorStyleHandler: controlsUtils.scaleSkewCursorStyleHandler })
+    }
+    object = text
   } else if (element.type === 'shape') {
-    object = new Rect({ fill: element.gradientTo ? new Gradient({ type: 'linear', gradientUnits: 'percentage', coords: { x1: 0, y1: 0, x2: 1, y2: 0 }, colorStops: [{ offset: 0, color: element.fill }, { offset: 1, color: element.gradientTo }] }) : element.fill })
+    const mode = element.fillMode ?? (element.gradientTo ? 'linear' : 'solid')
+    const destination = new Color(element.gradientTo ?? '#ffffff').setAlpha(element.gradientToOpacity ?? 1).toRgba()
+    const colorStops = [{ offset: 0, color: element.fill }, { offset: 1, color: destination }]
+    const fill = mode === 'solid' ? element.fill : mode === 'radial'
+      ? new Gradient({ type: 'radial', gradientUnits: 'percentage', coords: { x1: 0.5, y1: 0.5, r1: 0, x2: 0.5, y2: 0.5, r2: 0.5 }, colorStops })
+      : new Gradient({ type: 'linear', gradientUnits: 'percentage', coords: { x1: 0, y1: 0, x2: 1, y2: 0 }, colorStops })
+    object = new Rect({ fill })
   } else if (element.type === 'table') {
     const rows = element.cells.length, columns = element.cells[0].length
     const width = element.width / columns, height = element.height / rows
@@ -85,7 +148,7 @@ export async function renderElement(element: Element, assets: Record<string, Ass
         cells.push(artwork)
       }
       const markdown = element.contentFormat === 'markdown' ? tableMarkdown(cell) : { text: cell, styles: {} }
-      const text = new Textbox(markdown.text, { originX: 'left', originY: 'top', styles: markdown.styles, lineHeight: 1.15, left: c * width + padding, top: r * height + padding + iconOffset, textAlign: element.textAlign ?? (icon ? 'center' : 'left'), width: Math.max(1, width - padding * 2), fontSize: element.fontSize, fontFamily: element.fontFamily ?? 'Arial', fill: element.textColor })
+      const text = new Textbox(markdown.text, { originX: 'left', originY: 'top', styles: markdown.styles, lineHeight: 1.15, left: c * width + padding, top: r * height + padding + iconOffset, textAlign: element.textAlign === 'balanced' ? 'center' : element.textAlign ?? (icon ? 'center' : 'left'), width: Math.max(1, width - padding * 2), fontSize: element.fontSize, fontFamily: element.fontFamily ?? 'Arial', fill: element.textColor })
       const top = r * height + contentTop(height, iconOffset + text.height)
       text.set({ top: top + iconOffset })
       artwork?.set({ top })
@@ -203,7 +266,7 @@ export function readElement(object: FabricObject, original: Element): Element {
   }
   if (original.type === 'table') return { ...base, width: object.width * object.scaleX, height: object.height * object.scaleY, scaleX: 1, scaleY: 1 }
   if (original.type === 'text' && object instanceof Textbox) {
-    return { ...base, height: original.blockId ? original.height : base.height, type: 'text', text: object.text, fontFamily: object.fontFamily, fontSize: object.fontSize, fill: String(object.fill) }
+    return { ...base, height: object instanceof AlignedTextbox ? object.frameHeight : original.blockId ? original.height : base.height, type: 'text', text: original.text, fontFamily: object.fontFamily, fontSize: object.fontSize, lineHeight: object.lineHeight, charSpacing: object.charSpacing, fill: String(object.fill) }
   }
   return base
 }

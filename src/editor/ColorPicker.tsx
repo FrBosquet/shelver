@@ -17,7 +17,6 @@ export function ColorPicker({ label, value, colors, onChange }: Props) {
   const brightness = (parseInt(hex.slice(0, 2), 16) * 299 + parseInt(hex.slice(2, 4), 16) * 587 + parseInt(hex.slice(4, 6), 16) * 114) / 1000
   return <span className="project-color-picker">
     {colors && <span className="project-color-palette" role="group" aria-label={`${label}: project colors`}>
-      <span className="project-color-caption">Project colors</span>
       {(Object.keys(colorLabels) as ColorRole[]).map((role) => <button
         key={role}
         type="button"

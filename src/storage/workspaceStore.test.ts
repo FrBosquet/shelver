@@ -28,6 +28,27 @@ afterEach(() => {
 })
 
 describe('autosave', () => {
+  it('changes CDN fonts in an older template without spine color roles and preserves them after reload', async () => {
+    const storage = repository()
+    const store = new WorkspaceStore(storage)
+    await store.load()
+    const id = store.createSteam()!
+    const project = structuredClone(store.getSnapshot().projects.find(project => project.id === id)!)
+    const colors = project.composition.design!.styles.colors as Partial<import('../domain/types').StyleSheet['colors']>
+    delete colors.spine
+    delete colors.onSpine
+    await storage.save([project], [])
+    const legacy = new WorkspaceStore(storage)
+    await legacy.load()
+    const design = structuredClone(legacy.getSnapshot().projects.find(project => project.id === id)!.composition.design!)
+    design.styles.fonts.heading = 'Montserrat'
+    expect(() => legacy.updateDesign(id, design)).not.toThrow()
+    await legacy.flush()
+    const reopened = new WorkspaceStore(storage)
+    await reopened.load()
+    expect(reopened.getSnapshot().projects.find(project => project.id === id)!.composition.design!.styles.fonts.heading).toBe('Montserrat')
+  })
+
   it('restores image filters, blur and shadows after saving and reopening, including subsequent template edits and resets', async () => {
     const storage = repository()
     const store = new WorkspaceStore(storage)
