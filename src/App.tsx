@@ -94,7 +94,12 @@ export function App() {
           <span className="brand-mark" aria-hidden="true">▥</span> shelver<span className="brand-dot">.</span>
         </a>
         <p className="eyebrow sidebar-label">YOUR WORKSPACE</p>
-        <button className={`nav-item ${!activeProject ? 'active' : ''}`} onClick={() => setActiveId(null)}><span>▦</span> Cover library <span className="count">{projects.length}</span></button>
+        <button className={`nav-item sidebar-home ${!activeProject ? 'active' : ''}`} aria-current={!activeProject ? 'page' : undefined} onClick={() => setActiveId(null)}><span aria-hidden="true">⌂</span> Home</button>
+        <div className="sidebar-covers-heading"><p className="eyebrow">YOUR COVERS</p><span className="count">{projects.length}</span></div>
+        <nav className="sidebar-covers" aria-label="Your covers">
+          {projects.map((project) => <button key={project.id} className={`nav-item sidebar-cover ${activeId === project.id ? 'active' : ''}`} aria-current={activeId === project.id ? 'page' : undefined} title={project.name || 'Untitled cover'} onClick={() => setActiveId(project.id)}><span aria-hidden="true">▥</span><span className="sidebar-cover-name">{project.name || 'Untitled cover'}</span></button>)}
+          {loaded && projects.length === 0 && <p className="sidebar-empty">Your covers will appear here.</p>}
+        </nav>
         <div className="sidebar-bottom"><span className="save-indicator" data-status={status} role="status"><span className="status-dot" />{statusText}</span><p>This browser · This device</p></div>
       </aside>
       <main className={activeProject ? 'workspace-main' : undefined}>
@@ -105,7 +110,13 @@ export function App() {
           event.target.value = ''
         }} />
         {packageError && <div className="storage-error" role="alert"><p>{packageError}</p><button onClick={() => setPackageError(null)}>Dismiss</button></div>}
-        {packageDownload && <p className="export-result" role="status">Backup ready: {packageDownload.filename} <a href={packageDownload.url} download={packageDownload.filename}>Save .coverproject</a></p>}
+        {packageDownload && <div className="export-toast">
+          <div role="status"><strong>Backup ready</strong><p>{packageDownload.filename}</p></div>
+          <div className="export-toast-actions">
+            <a href={packageDownload.url} download={packageDownload.filename}>Save .coverproject</a>
+            <button onClick={() => setPackageDownload(null)}>Dismiss</button>
+          </div>
+        </div>}
         {error && <div className="storage-error" role="alert"><p>{error}</p><button onClick={() => void store.retry()}>{loaded ? 'Retry saving' : 'Retry loading'}</button></div>}
         {!loaded ? <section className="loading-panel" aria-label="Local library"><h1>{status === 'error' ? 'Your library is unavailable.' : 'Opening your library…'}</h1><p>{status === 'error' ? 'Resolve the storage error and retry. Your existing data has not been replaced.' : 'Loading projects and artwork saved in this browser.'}</p></section> : activeProject ? <>
           <div className="editor-heading">
