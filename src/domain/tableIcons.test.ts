@@ -10,10 +10,10 @@ it('builds Steam features as one four-column table and persists cell icons', asy
   expect(features).toHaveLength(1)
   const table = features[0]
   if (table.type !== 'table') throw new Error('Expected features table')
-  expect(table.cells).toEqual([['horas', '%', 'MM/AA', 'PC']])
-  expect(table.icons).toEqual([['clock', 'star', 'calendar', 'controller']])
+  expect(table.cells).toEqual([['horas', '%', 'MM/AA', 'MM/AA']])
+  expect(table.icons).toEqual([['clock', 'star', 'launch', 'achievements']])
   expect(table.verticalAlign).toBe('middle')
-  expect(table.height).toBeCloseTo(project.composition.format.height * 0.07)
+  expect(table.height).toBeCloseTo(project.composition.format.height * 0.07131944)
   const next = { ...table, icons: [['multiplayer', null, 'calendar', 'controller']] as typeof table.icons }
   const edited = captureDesignEdits(project, project.composition.elements.map((element) => element.id === table.id ? next : element))
   expect(validProject(edited)).toBe(true)

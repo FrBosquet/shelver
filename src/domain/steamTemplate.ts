@@ -35,7 +35,7 @@ function block(id: string, name: string, kind: DesignBlock['kind'], panel: Desig
 export function createSteamProject(format: Format = workingFormats[0]): Project {
   const design: CoverDesign = {
     version: 1, instanceId: crypto.randomUUID(), templateId: 'steam-editorial-v1', templateName: 'Steam · Editorial',
-    styles: structuredClone(steamStyles),
+    styles: structuredClone(steamStyles), steamLayoutVersion: 1,
     shared: {
       title: 'TÍTULO DEL\nJUEGO', publisher: 'TU EDITORA', rating: '7',
       headline: 'TU JUEGO.\nTU HISTORIA.\nTU AVENTURA.',
@@ -76,8 +76,8 @@ export function createSteamProject(format: Format = workingFormats[0]): Project 
   design.blocks.find((b) => b.id === 'features')!.items = [
     { id: 'clock', title: 'horas', text: '', detail: '' },
     { id: 'star', title: '%', text: '', detail: '' },
-    { id: 'calendar', title: 'MM/AA', text: '', detail: '' },
-    { id: 'controller', title: 'PC', text: '', detail: '' },
+    { id: 'launch', title: 'MM/AA', text: '', detail: '' },
+    { id: 'achievements', title: 'MM/AA', text: '', detail: '' },
   ]
   const timestamp = new Date().toISOString()
   const project: Project = { schemaVersion: SCHEMA_VERSION, id: crypto.randomUUID(), name: 'Steam cover', platform: 'pc', templateId: design.templateId, templateVersion: 1,

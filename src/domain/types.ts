@@ -111,6 +111,7 @@ export type Placement = {
 export type ElementOverride = { fontRole?: FontRole; replacement?: Element; placement?: Placement; text?: string; fill?: string; fontFamily?: string; fontSize?: number; hidden?: boolean }
 export type CoverDesign = {
   version: 1; instanceId: string; templateId: 'steam-editorial-v1'; templateName: string
+  steamLayoutVersion?: 1
   styles: StyleSheet
   shared: { title: string; publisher: string; rating: string; legal: string; headline: string; synopsis: string; quote: string; attribution: string }
   blocks: DesignBlock[]

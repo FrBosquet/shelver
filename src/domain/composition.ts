@@ -1,3 +1,4 @@
+import { applySteamLayout } from './steamLayout'
 import { tableIcons } from './tableIcons'
 import { elementAssetIds, remapElementAssets } from './elementTypes'
 import type { ColorRole, CoverDesign, DesignBlock, Element, ElementOverride, Format, Placement, Project, RatingElement, TextRole } from './types'
@@ -161,7 +162,8 @@ export function composeDesign(project: Project): Project {
       }
     }
   }
-  const elements = result.map((element) => {
+  const elements = result.map((generated) => {
+    const element = design.steamLayoutVersion === 1 ? applySteamLayout(generated, format) : generated
     // Keep placement and visibility edits from the earlier text placeholders.
     const legacyId = element.id.replace(':platform:logo', ':platform:brand').replace(':spine:platform-logo', ':spine:platform')
     const override = design.overrides[element.id] ?? design.overrides[legacyId]

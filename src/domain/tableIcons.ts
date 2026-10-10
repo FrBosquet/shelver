@@ -1,4 +1,4 @@
-import { Calendar, Clock, Cloud, Gamepad2, Languages, Star, Trophy, UserRound, UsersRound } from 'lucide'
+import { Calendar, Clock, Cloud, Gamepad2, Languages, Rocket, Star, Trophy, UserRound, UsersRound } from 'lucide'
 
 export const tableIcons = [
   { id: 'player', label: 'Single player', node: UserRound },
@@ -10,6 +10,7 @@ export const tableIcons = [
   { id: 'clock', label: 'Clock', node: Clock },
   { id: 'star', label: 'Star', node: Star },
   { id: 'calendar', label: 'Calendar', node: Calendar },
+  { id: 'launch', label: 'Launch', node: Rocket },
 ] as const
 export type TableIconId = typeof tableIcons[number]['id']
 
