@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import type { Asset, CoverDesign, Element } from './domain/types'
+import type { Asset, CoverDesign, Element, Project } from './domain/types'
 import { useWorkspace } from './storage/useWorkspace'
 import { TemplateInspector } from './editor/TemplateInspector'
 import { ProjectActions } from './ProjectActions'
@@ -45,9 +45,9 @@ export function App() {
     } finally { setPackageBusy(null) }
   }
 
-  async function exportProject() {
-    if (!activeProject) return
-    const project = structuredClone(activeProject)
+  async function exportProject(source: Project) {
+    if (packageBusy) return
+    const project = structuredClone(source)
     const assetSnapshot = assets
     setPackageBusy('export')
     setPackageError(null)
@@ -123,7 +123,7 @@ export function App() {
             <button className="back-button" onClick={() => setActiveId(null)}>← Library</button>
             <input className="project-name" aria-label="Project name" value={activeProject.name} onChange={(event) => rename(event.target.value)} />
             <span className="save-status" data-status={status}>{statusText}</span>
-            <button disabled={Boolean(packageBusy)} onClick={() => void exportProject()}>{packageBusy === 'export' ? 'Preparing backup…' : 'Export project'}</button>
+            <button disabled={Boolean(packageBusy)} onClick={() => void exportProject(activeProject)}>{packageBusy === 'export' ? 'Preparing backup…' : 'Export project'}</button>
           </div>
           <Suspense fallback={<p className="loading-message" role="status">Opening your workspace…</p>}>
             <div className={`editor-workspace${activeProject.composition.design ? ' design-workspace' : ''}`}>
@@ -148,7 +148,7 @@ export function App() {
             <div className="section-heading"><h2>Your covers</h2><span>{projects.length} {projects.length === 1 ? 'project' : 'projects'}</span></div>
             <div className="project-grid">{projects.map((project) => <article className="project-card" key={project.id}>
               <ProjectPreview project={project} assets={assets} onOpen={() => setActiveId(project.id)} />
-              <div className="project-meta"><button onClick={() => setActiveId(project.id)}>{project.name || 'Untitled cover'}</button><ProjectActions name={project.name || 'Untitled cover'} onDuplicate={() => { store.duplicate(project.id); setDeleteId(null) }} onDelete={() => setDeleteId(project.id)} /></div>
+              <div className="project-meta"><button onClick={() => setActiveId(project.id)}>{project.name || 'Untitled cover'}</button><ProjectActions name={project.name || 'Untitled cover'} onExport={() => void exportProject(project)} exportDisabled={Boolean(packageBusy)} onDuplicate={() => { store.duplicate(project.id); setDeleteId(null) }} onDelete={() => setDeleteId(project.id)} /></div>
               <p className="project-date">Updated {new Date(project.updatedAt).toLocaleString()}</p>
             </article>)}</div>
           </section>}

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 
-export function ProjectActions({ name, onDuplicate, onDelete }: { name: string; onDuplicate: () => void; onDelete: () => void }) {
+export function ProjectActions({ name, onExport, exportDisabled, onDuplicate, onDelete }: { name: string; onExport: () => void; exportDisabled: boolean; onDuplicate: () => void; onDelete: () => void }) {
   const ref = useRef<HTMLDetailsElement>(null)
 
   useEffect(() => {
@@ -34,6 +34,7 @@ export function ProjectActions({ name, onDuplicate, onDelete }: { name: string; 
   }}>
     <summary aria-label={`Actions for ${name}`} title="Cover actions"><span aria-hidden="true">⋮</span></summary>
     <div className="project-actions-dropdown">
+      <button disabled={exportDisabled} onClick={() => run(onExport)} aria-label={`Export project ${name}`}>Export project</button>
       <button onClick={() => run(onDuplicate)} aria-label={`Duplicate ${name}`}>Duplicate</button>
       <button className="delete-button" onClick={() => run(onDelete)} aria-label={`Delete ${name}`}>Delete</button>
     </div>
