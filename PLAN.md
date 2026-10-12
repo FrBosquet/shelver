@@ -1,4 +1,4 @@
-# Shelver — Plan del proyecto
+# Game Shelver — Plan del proyecto
 
 Fecha: 9 de octubre de 2026
 Estado: base de la fase 1 y guardado, respaldos e historial de la fase 2 implementados. Primer prototipo de plantilla Steam con bloques, estilos compartidos y cambio de formato implementado para probar; otras plataformas y plantillas propias pendientes.

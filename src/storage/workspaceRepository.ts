@@ -39,7 +39,7 @@ export class IndexedDbWorkspaceRepository implements WorkspaceRepository {
       }
       request.onblocked = () => {
         blocked = true
-        reject(new Error('Close other Shelver tabs and retry to open local storage.'))
+        reject(new Error('Close other Game Shelver tabs and retry to open local storage.'))
       }
       request.onerror = () => reject(request.error ?? new Error('Unable to open local storage.'))
       request.onsuccess = () => {

@@ -1,4 +1,4 @@
-# Shelver
+# Game Shelver
 
 A local workspace for composing video game covers with your own artwork.
 
@@ -69,7 +69,7 @@ New projects use domain schema version 2. Steam projects store a versioned desig
 
 ## Portable backups
 
-Open a project, click **Export project**, then **Save .coverproject** when the backup is ready. Use **Import project** to restore it in this browser or another browser running Shelver. Import creates an independent project with fresh identifiers and saves its composition and images together; existing projects are preserved.
+Open a project, click **Export project**, then **Save .coverproject** when the backup is ready. Use **Import project** to restore it in this browser or another browser running Game Shelver. Import creates an independent project with fresh identifiers and saves its composition and images together; existing projects are preserved.
 
 The file is a ZIP containing a versioned JSON manifest and the images referenced by the current composition and design, including hidden blocks. It retains editable block definitions, shared styles and overrides. New packages use schema version 2; version 1 backups can still be imported. Image bytes are checked against SHA-256 hashes and decoded dimensions before import. Missing files, unsupported versions, external paths, and malformed packages show an error without adding a partial project.
 

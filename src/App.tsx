@@ -91,7 +91,7 @@ export function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <a className="brand" href="#" onClick={(event) => { event.preventDefault(); setActiveId(null) }}>
-          <span className="brand-mark" aria-hidden="true">▥</span> shelver<span className="brand-dot">.</span>
+          <span className="brand-mark" aria-hidden="true">▥</span><span className="brand-name"><span className="brand-game">game</span> shelver<span className="brand-dot">.</span></span>
         </a>
         <p className="eyebrow sidebar-label">YOUR WORKSPACE</p>
         <button className={`nav-item sidebar-home ${!activeProject ? 'active' : ''}`} aria-current={!activeProject ? 'page' : undefined} onClick={() => setActiveId(null)}><span aria-hidden="true">⌂</span> Home</button>

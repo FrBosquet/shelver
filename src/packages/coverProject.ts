@@ -127,7 +127,7 @@ export async function importCoverProject(file: Blob): Promise<{ project: Project
   let manifest: unknown
   try { manifest = JSON.parse(strFromU8(files['manifest.json'])) }
   catch { throw new Error('The project manifest is not valid JSON.') }
-  if (!isRecord(manifest) || manifest.type !== 'shelver-project') throw new Error('This is not a Shelver project package.')
+  if (!isRecord(manifest) || manifest.type !== 'shelver-project') throw new Error('This is not a Game Shelver project package.')
   if (!supportedVersion(manifest.schemaVersion)) throw new Error('This project package uses an unsupported version.')
   if (!validProject(manifest.project) || !Array.isArray(manifest.assets) || !manifest.assets.every(validDescriptor)) throw new Error('The project manifest contains invalid composition or artwork data.')
   if (manifest.schemaVersion < manifest.project.schemaVersion) throw new Error('The project schema exceeds its package version.')

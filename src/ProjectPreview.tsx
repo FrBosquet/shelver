@@ -16,6 +16,6 @@ export function ProjectPreview({ project, assets, onOpen }: { project: Project; 
 
   return <button className={`project-preview${blob ? ' has-artwork' : ''}`} onClick={onOpen} aria-label={`Open ${project.name}`}>
     {blob && <img ref={imageRef} className="project-preview-artwork" alt="" style={{ objectPosition: `${(artwork.focalX ?? 0.5) * 100}% ${(artwork.focalY ?? 0.5) * 100}%` }} />}
-    <span>PC</span><strong>{project.name || 'Untitled cover'}</strong><small>SHELVER COLLECTION</small>
+    <span>PC</span><strong>{project.name || 'Untitled cover'}</strong><small>GAME SHELVER COLLECTION</small>
   </button>
 }

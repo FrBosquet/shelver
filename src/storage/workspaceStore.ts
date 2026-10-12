@@ -23,7 +23,7 @@ function storageError(error: unknown, loading: boolean): string {
     return 'Browser storage is full. Your latest changes are not saved. Free up space and retry; you can still export a PNG.'
   }
   if (error instanceof Error && error.name === 'VersionError') {
-    return 'This library was saved with a newer version of Shelver. Update the app before opening it.'
+    return 'This library was saved with a newer version of Game Shelver. Update the app before opening it.'
   }
   const detail = error instanceof Error ? ` ${error.message}` : ''
   return loading
