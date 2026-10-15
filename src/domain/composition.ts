@@ -227,7 +227,7 @@ export function captureDesignEdits(project: Project, elements: Element[]): Proje
     if (next.visible !== previous.visible) override.hidden = !next.visible
     if (next.opacity !== previous.opacity) override.opacity = next.opacity
     if (next.name !== previous.name) override.name = next.name
-    if (next.type !== previous.type || override.replacement || (next.type === 'text' && previous.type === 'text' && (next.textAlign !== previous.textAlign || next.verticalAlign !== previous.verticalAlign)) || (next.type === 'qr' && previous.type === 'qr' && next.url !== previous.url) || (next.type === 'table' && previous.type === 'table' && JSON.stringify(next) !== JSON.stringify(previous)) || (next.type === 'image' && previous.type === 'image' && ['filters', 'fit', 'imageScale', 'offsetX', 'offsetY', 'focalX', 'focalY'].some((key) => next[key as keyof typeof next] !== previous[key as keyof typeof previous]))) {
+    if (next.type !== previous.type || override.replacement || (next.type === 'text' && previous.type === 'text' && (next.textAlign !== previous.textAlign || next.verticalAlign !== previous.verticalAlign)) || (next.type === 'qr' && previous.type === 'qr' && next.url !== previous.url) || (next.type === 'table' && previous.type === 'table' && JSON.stringify(next) !== JSON.stringify(previous)) || (next.type === 'image' && previous.type === 'image' && ['assetId', 'filters', 'fit', 'imageScale', 'offsetX', 'offsetY', 'focalX', 'focalY'].some((key) => next[key as keyof typeof next] !== previous[key as keyof typeof previous]))) {
       design.overrides[previous.id] = { replacement: structuredClone(next), placement: placementOf(next, format), hidden: !next.visible }
       continue
     }

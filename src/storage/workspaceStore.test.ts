@@ -28,6 +28,33 @@ afterEach(() => {
 })
 
 describe('autosave', () => {
+  it.each(['frontArt', 'backArt'])('preserves replaced %s artwork through palette changes and reopening', async (slot) => {
+    const storage = repository()
+    const store = new WorkspaceStore(storage)
+    await store.load()
+    const id = store.createSteam()!
+    const current = () => store.getSnapshot().projects.find((project) => project.id === id)!
+    const design = structuredClone(current().composition.design!)
+    const originalAsset: Asset = { id: 'original-art', name: 'Original', blob: new Blob(['original'], { type: 'image/png' }), mimeType: 'image/png', width: 1, height: 1 }
+    const replacement: Asset = { ...originalAsset, id: 'replacement-art', name: 'Replacement' }
+    design.images[slot] = { assetId: originalAsset.id, fit: 'contain', focalX: 0.5, focalY: 0.5 }
+    store.updateDesign(id, design, [originalAsset])
+    const blockId = slot === 'frontArt' ? 'front-art' : 'back-art'
+    const original = current().composition.elements.find((element) => element.type === 'image' && element.blockId === blockId)! as ImageElement
+    expect(original).toBeDefined()
+    const edited = { ...original, assetId: replacement.id }
+    store.changeElements(id, current().composition.elements.map((element) => element.id === original.id ? edited : element), replacement)
+    expect(current().composition.elements.find((element) => element.id === original.id)).toEqual(edited)
+    const recolored = structuredClone(current().composition.design!)
+    recolored.styles.colors.brand = '#123456'
+    store.updateDesign(id, recolored, [], 'color:brand', false)
+    expect(current().composition.elements.find((element) => element.id === original.id)).toEqual(edited)
+    await store.flush()
+    const reopened = new WorkspaceStore(storage)
+    await reopened.load()
+    expect(reopened.getSnapshot().projects.find((project) => project.id === id)!.composition.elements.find((element) => element.id === original.id)).toEqual(edited)
+  })
+
   it('changes CDN fonts in an older template without spine color roles and preserves them after reload', async () => {
     const storage = repository()
     const store = new WorkspaceStore(storage)
