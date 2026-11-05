@@ -89,6 +89,7 @@ function validElement(element: unknown): element is Element {
     && (element.icons === undefined || Array.isArray(element.icons) && element.icons.length === element.cells.length && element.icons.every((row, r) => Array.isArray(row) && row.length === (element.cells as unknown[][])[r].length && row.every((icon) => icon === null || tableIcons.some((entry) => entry.id === icon))))
     && typeof element.fill === 'string' && typeof element.textColor === 'string' && finite(element.fontSize) && element.fontSize > 0
   return element.type === 'shape' && typeof element.fill === 'string' && (element.gradientTo === undefined || typeof element.gradientTo === 'string')
+    && ['fillRole', 'gradientToRole'].every((key) => element[key] === undefined || typeof element[key] === 'string' && Object.hasOwn(colorLabels, element[key]))
     && (element.fillMode === undefined || ['solid', 'linear', 'radial'].includes(String(element.fillMode)))
     && (element.gradientToOpacity === undefined || finite(element.gradientToOpacity) && element.gradientToOpacity >= 0 && element.gradientToOpacity <= 1)
 }
@@ -139,6 +140,7 @@ export function validDesign(value: unknown): value is CoverDesign {
     && (override.charSpacing === undefined || finite(override.charSpacing) && override.charSpacing >= -200 && override.charSpacing <= 2000)
     && (override.opacity === undefined || finite(override.opacity) && override.opacity >= 0 && override.opacity <= 1)
     && (override.gradientTo === undefined || typeof override.gradientTo === 'string')
+    && ['fillRole', 'gradientToRole'].every((key) => override[key] === undefined || typeof override[key] === 'string' && Object.hasOwn(colorLabels, override[key]))
     && (override.fillMode === undefined || ['solid', 'linear', 'radial'].includes(String(override.fillMode)))
     && (override.gradientToOpacity === undefined || finite(override.gradientToOpacity) && override.gradientToOpacity >= 0 && override.gradientToOpacity <= 1)
     && (override.hidden === undefined || typeof override.hidden === 'boolean'))) return false

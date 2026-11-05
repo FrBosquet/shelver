@@ -461,3 +461,27 @@ describe('shared style changes', () => {
     expect(lost).toEqual([])
   })
 })
+
+describe('box colors linked to the style guide', () => {
+  it('updates template and added boxes painted with a project color and stops once a custom color is picked', () => {
+    let project = createSteamProject()
+    const colors = project.composition.design!.styles.colors
+    const surface = project.composition.elements.find((element) => element.type === 'shape' && element.id.endsWith(':platform:surface'))! as ShapeElement
+    const added: ShapeElement = { ...surface, id: 'added-box', blockId: undefined, styleRef: undefined, locked: false, fill: colors.spine, fillRole: 'spine', fillMode: 'linear', gradientTo: colors.rating, gradientToRole: 'rating' }
+    project = captureDesignEdits(project, [...project.composition.elements.map((element) => element.id === surface.id ? { ...surface, fill: colors.spine, fillRole: 'spine' as const } : element), added])
+    project.composition.design!.styles.colors.spine = '#00aa00'
+    project.composition.design!.styles.colors.rating = '#0000aa'
+    project = composeDesign(project)
+    const find = (id: string) => project.composition.elements.find((element) => element.id === id) as ShapeElement
+    expect(find(surface.id)).toMatchObject({ fill: '#00aa00', fillRole: 'spine' })
+    expect(find('added-box')).toMatchObject({ fill: '#00aa00', gradientTo: '#0000aa' })
+    expect(validProject(project)).toBe(true)
+
+    project = captureDesignEdits(project, project.composition.elements.map((element) => element.id === surface.id ? { ...element, fill: '#123456', fillRole: undefined } as ShapeElement : element))
+    project.composition.design!.styles.colors.spine = '#aa0000'
+    project = composeDesign(project)
+    expect(find(surface.id).fill).toBe('#123456')
+    expect(find(surface.id).fillRole).toBeUndefined()
+    expect(find('added-box').fill).toBe('#aa0000')
+  })
+})

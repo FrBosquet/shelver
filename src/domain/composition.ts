@@ -192,6 +192,8 @@ export function composeDesign(project: Project): Project {
       ...(override.fill ? { fill: override.fill } : {}) }
     if (resolved.type === 'shape') resolved = { ...resolved,
       ...(override.fill ? { fill: override.fill } : {}),
+      ...(override.fillRole ? { fillRole: override.fillRole } : {}),
+      ...(override.gradientToRole ? { gradientToRole: override.gradientToRole } : {}),
       ...(override.fillMode ? { fillMode: override.fillMode } : {}),
       ...(override.gradientTo !== undefined ? { gradientTo: override.gradientTo } : {}),
       ...(override.gradientToOpacity !== undefined ? { gradientToOpacity: override.gradientToOpacity } : {}) }
@@ -199,6 +201,9 @@ export function composeDesign(project: Project): Project {
   })
   elements.push(...design.extras.map(({ element, placement }) => adaptElement(element, placement, format)))
   for (const element of elements) {
+    // Boxes painted with a project color keep following it when the style guide changes.
+    if (element.type === 'shape' && element.fillRole) element.fill = colors[element.fillRole]
+    if (element.type === 'shape' && element.gradientToRole) element.gradientTo = colors[element.gradientToRole]
     if (element.type === 'image' && element.filters?.tint && element.filters.tintRole) {
       element.filters = { ...element.filters, tint: colors[element.filters.tintRole] }
     }
@@ -245,6 +250,8 @@ export function captureDesignEdits(project: Project, elements: Element[]): Proje
     }
     if (next.type === 'shape' && previous.type === 'shape') {
       if (next.fill !== previous.fill) override.fill = next.fill
+      if (next.fillRole !== previous.fillRole) { if (next.fillRole) override.fillRole = next.fillRole; else delete override.fillRole }
+      if (next.gradientToRole !== previous.gradientToRole) { if (next.gradientToRole) override.gradientToRole = next.gradientToRole; else delete override.gradientToRole }
       if (next.fillMode !== previous.fillMode && next.fillMode) override.fillMode = next.fillMode
       if (next.gradientTo !== previous.gradientTo && next.gradientTo !== undefined) override.gradientTo = next.gradientTo
       if (next.gradientToOpacity !== previous.gradientToOpacity && next.gradientToOpacity !== undefined) override.gradientToOpacity = next.gradientToOpacity

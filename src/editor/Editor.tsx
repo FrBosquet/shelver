@@ -12,7 +12,7 @@ import { ActiveSelection, Canvas, FabricImage, Textbox } from 'fabric'
 import type { FabricObject } from 'fabric'
 import { createText } from '../domain/projects'
 import { composeDesign } from '../domain/composition'
-import type { Asset, Element, FontRole, ImageFilters, Project } from '../domain/types'
+import type { Asset, Element, ColorRole, FontRole, ImageFilters, Project } from '../domain/types'
 import { readElement, renderElement } from './fabricAdapter'
 import { AssetPicker } from './AssetPicker'
 import { ImageCropModal } from './ImageCropModal'
@@ -715,7 +715,7 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
   const projectFonts = project.composition.design?.styles.fonts ?? { heading: 'Georgia', body: 'Arial', technical: 'Arial' }
   const fontOptions = (['heading', 'body', 'technical'] as const).map((role) => <option key={role} value={role}>{role[0].toUpperCase() + role.slice(1)} · {projectFonts[role]}</option>)
   const commonType = multipleElements.length > 1 && multipleElements.every((element) => element.type === multipleElements[0].type) ? multipleElements[0].type : null
-  async function changeCommonStyle(property: 'fill' | 'fontRole', value: string) {
+  async function changeCommonStyle(property: 'fill' | 'fontRole', value: string, role?: ColorRole) {
     const instance = canvas.current
     if (!instance || busy) return
     const active = instance.getActiveObjects()
@@ -726,7 +726,7 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
       const current = readElement(object, original)
       if (!selected.has(object)) return { object, element: current }
       const element = property === 'fill'
-        ? { ...current, ...(current.type === 'table' ? { textColor: value } : { fill: value }) }
+        ? { ...current, ...(current.type === 'table' ? { textColor: value } : current.type === 'shape' ? { fill: value, fillRole: role } : { fill: value }) }
         : { ...current, fontRole: value as FontRole, fontFamily: projectFonts[value as FontRole] }
       return { object, element: element as Element }
     })
@@ -782,7 +782,7 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
     <p className="eyebrow">{selectionCount} ELEMENTS SELECTED</p>
     {opacityControl}
     {commonType === 'image' ? imageFilterControls : commonType && ['text', 'shape', 'table'].includes(commonType) ? <>
-      <div className="field">{commonType === 'shape' ? 'Color' : 'Text color'}{!commonValue('fill') && <span className="small muted">Mixed colors</span>}<ColorPicker label="Selected elements color" colors={project.composition.design?.styles.colors} value={commonValue('fill') || '#172129'} onChange={(color) => void changeCommonStyle('fill', color)} /></div>
+      <div className="field">{commonType === 'shape' ? 'Color' : 'Text color'}{!commonValue('fill') && <span className="small muted">Mixed colors</span>}<ColorPicker label="Selected elements color" colors={project.composition.design?.styles.colors} value={commonValue('fill') || '#172129'} onChange={(color, role) => void changeCommonStyle('fill', color, role)} /></div>
       {(commonType === 'text' || commonType === 'table') && <label className="field">Font<select aria-label="Selected elements font" disabled={busy} value={commonValue('fontRole')} onChange={(event) => void changeCommonStyle('fontRole', event.target.value)}>
         <option value="" disabled>Mixed fonts</option>{fontOptions}
       </select></label>}
@@ -884,12 +884,12 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
       {project.composition.design && selection.blockId && <p className="small muted">Shared style: {selection.styleRef}. Edits here override this element.</p>}
     </div>}
     {selection?.type === 'shape' && <>
-      <div className="field">Box color<ColorPicker label="Box color" colors={project.composition.design?.styles.colors} value={selection.fill} onChange={(color) => void editElement({ ...selection, fill: color })} /></div>
+      <div className="field">Box color<ColorPicker label="Box color" colors={project.composition.design?.styles.colors} value={selection.fill} onChange={(color, role) => void editElement({ ...selection, fill: color, fillRole: role })} /></div>
       <div className="box-fill-toggle" role="group" aria-label="Box fill mode">
         {(['solid', 'linear', 'radial'] as const).map((mode) => <button key={mode} type="button" aria-pressed={(selection.fillMode ?? (selection.gradientTo ? 'linear' : 'solid')) === mode} disabled={busy} onClick={() => void editElement({ ...selection, fillMode: mode, ...(mode !== 'solid' ? { gradientTo: selection.gradientTo ?? '#ffffff' } : {}) })}>{mode === 'solid' ? 'Solid' : mode === 'linear' ? 'Linear' : 'Radial'}</button>)}
       </div>
       {(selection.fillMode ?? (selection.gradientTo ? 'linear' : 'solid')) !== 'solid' && <>
-        <div className="field">Destination color<ColorPicker label="Box destination color" colors={project.composition.design?.styles.colors} value={selection.gradientTo ?? '#ffffff'} onChange={(color) => void editElement({ ...selection, gradientTo: color })} /></div>
+        <div className="field">Destination color<ColorPicker label="Box destination color" colors={project.composition.design?.styles.colors} value={selection.gradientTo ?? '#ffffff'} onChange={(color, role) => void editElement({ ...selection, gradientTo: color, gradientToRole: role })} /></div>
         <label className="field">Destination opacity · {Math.round((selection.gradientToOpacity ?? 1) * 100)}%<input aria-label="Box destination opacity" type="range" min="0" max="100" step="1" value={Math.round((selection.gradientToOpacity ?? 1) * 100)} disabled={busy} onChange={(event) => void editElement({ ...selection, gradientToOpacity: event.target.valueAsNumber / 100 })} /></label>
       </>}
     </>}
