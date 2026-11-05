@@ -508,3 +508,19 @@ describe('text and table colors linked to the style guide', () => {
     expect((find(caption.id) as TextElement).fillRole).toBeUndefined()
   })
 })
+
+describe('shadow colors linked to the style guide', () => {
+  it('updates text and image shadows picked from a project color', () => {
+    let project = createSteamProject()
+    const caption = text(project, 'shot-1-caption')
+    const image = project.composition.elements.find((element) => element.type === 'image')! as ImageElement
+    const shadow = { color: '#000000', colorRole: 'brand' as const, opacity: 0.5, blur: 4, offsetX: 1, offsetY: 1 }
+    project = captureDesignEdits(project, project.composition.elements.map((element) =>
+      element.id === caption.id ? { ...caption, shadow } : element.id === image.id ? { ...image, filters: { shadow } } : element))
+    project.composition.design!.styles.colors.brand = '#aa0001'
+    project = composeDesign(project)
+    expect((project.composition.elements.find((element) => element.id === caption.id) as TextElement).shadow?.color).toBe('#aa0001')
+    expect((project.composition.elements.find((element) => element.id === image.id) as ImageElement).filters?.shadow?.color).toBe('#aa0001')
+    expect(validProject(project)).toBe(true)
+  })
+})

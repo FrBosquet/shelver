@@ -11,6 +11,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 
 function validShadow(value: unknown): boolean {
   return isRecord(value) && typeof value.color === 'string' && /^#[0-9a-f]{6}$/i.test(value.color)
+    && (value.colorRole === undefined || typeof value.colorRole === 'string' && Object.hasOwn(colorLabels, value.colorRole))
     && finite(value.blur) && value.blur >= 0 && value.blur <= 100
     && finite(value.opacity) && value.opacity >= 0 && value.opacity <= 1
     && ['offsetX', 'offsetY'].every((key) => finite(value[key]) && Math.abs(value[key] as number) <= 200)

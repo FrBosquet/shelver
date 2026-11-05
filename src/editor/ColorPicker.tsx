@@ -7,12 +7,16 @@ import { colorLabels } from '../domain/colorLabels'
 type Props = {
   label: string
   value: string
+  /** Project color this value is linked to, when it was picked by reference. */
+  role?: ColorRole
   colors?: StyleSheet['colors']
   onChange: (color: string, role?: ColorRole) => void
 }
 
-export function ColorPicker({ label, value, colors, onChange }: Props) {
-  const customSelected = !colors || !Object.values(colors).some((color) => color.toLowerCase() === value.toLowerCase())
+export function ColorPicker({ label, value, role: linkedRole, colors, onChange }: Props) {
+  const linked = colors && linkedRole && Object.hasOwn(colors, linkedRole) ? linkedRole : undefined
+  const selected = (role: ColorRole) => linked ? role === linked : value.toLowerCase() === colors![role].toLowerCase()
+  const customSelected = !colors || !(Object.keys(colors) as ColorRole[]).some(selected)
   const hex = value.replace('#', '')
   const brightness = (parseInt(hex.slice(0, 2), 16) * 299 + parseInt(hex.slice(2, 4), 16) * 587 + parseInt(hex.slice(4, 6), 16) * 114) / 1000
   return <span className="project-color-picker">
@@ -24,7 +28,7 @@ export function ColorPicker({ label, value, colors, onChange }: Props) {
         style={{ backgroundColor: colors[role] }}
         title={`${colorLabels[role]} · ${colors[role]}`}
         aria-label={`${label}: ${colorLabels[role]} (${colors[role]})`}
-        aria-pressed={value.toLowerCase() === colors[role].toLowerCase()}
+        aria-pressed={selected(role)}
         onClick={() => onChange(colors[role], role)}
       />)}
     </span>}

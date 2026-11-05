@@ -48,7 +48,7 @@ export type TextElement = BaseElement & {
     charSpacing?: number
     shadow?: ImageShadow
 }
-export type ImageShadow = { color: string; blur: number; offsetX: number; offsetY: number; opacity: number }
+export type ImageShadow = { color: string; colorRole?: ColorRole; blur: number; offsetX: number; offsetY: number; opacity: number }
 export type ImageFilters = { blur?: number; backdropBlur?: number; shadow?: ImageShadow; brightness?: number; contrast?: number; saturation?: number; grayscale?: boolean; invert?: boolean; tint?: string; tintRole?: ColorRole }
 export type ImageElement = BaseElement & { type: 'image'; assetId: string; filters?: ImageFilters; fit?: 'cover' | 'contain' | 'repeat'; imageScale?: number; offsetX?: number; offsetY?: number; focalX?: number; focalY?: number }
 export type ShapeElement = BaseElement & { type: 'shape'; fill: string; fillRole?: ColorRole; fillMode?: 'solid' | 'linear' | 'radial'; gradientTo?: string; gradientToRole?: ColorRole; gradientToOpacity?: number }

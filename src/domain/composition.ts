@@ -205,6 +205,8 @@ export function composeDesign(project: Project): Project {
     // Elements painted with a project color keep following it when the style guide changes.
     if ((element.type === 'shape' || element.type === 'text' || element.type === 'table') && element.fillRole) element.fill = colors[element.fillRole]
     if (element.type === 'table' && element.textColorRole) element.textColor = colors[element.textColorRole]
+    if (element.type === 'text' && element.shadow?.colorRole) element.shadow = { ...element.shadow, color: colors[element.shadow.colorRole] }
+    if (element.type === 'image' && element.filters?.shadow?.colorRole) element.filters = { ...element.filters, shadow: { ...element.filters.shadow, color: colors[element.filters.shadow.colorRole] } }
     if (element.type === 'shape' && element.gradientToRole) element.gradientTo = colors[element.gradientToRole]
     if (element.type === 'image' && element.filters?.tint && element.filters.tintRole) {
       element.filters = { ...element.filters, tint: colors[element.filters.tintRole] }
