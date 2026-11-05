@@ -4,7 +4,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { adaptElement, captureDesignEdits, composeDesign, placementOf, referencedAssetIds, remapDesign } from './composition'
 import { createProject, pcTemplate } from './projects'
 import { createSteamProject, workingFormats } from './steamTemplate'
-import type { Asset, ImageElement, Project, RatingElement, ShapeElement, TextElement } from './types'
+import type { Asset, Element, ImageElement, Project, RatingElement, ShapeElement, TableElement, TextElement } from './types'
 import { validProject } from './validation'
 import { WorkspaceStore } from '../storage/workspaceStore'
 import { IndexedDbWorkspaceRepository } from '../storage/workspaceRepository'
@@ -426,6 +426,101 @@ describe('box gradients', () => {
     const find = (id: string) => project.composition.elements.find((element) => element.id === id) as ShapeElement
     expect(find(surface.id)).toMatchObject({ fill: '#ff0000', gradientTo: '#ff000000', gradientToOpacity: 0.25 })
     expect(find(background.id)).toMatchObject({ fill: '#00ff00', fillMode: 'radial', gradientTo: '#123456', gradientToOpacity: 0.4 })
+    expect(validProject(project)).toBe(true)
+  })
+})
+
+describe('shared style changes', () => {
+  // Every setting the inspector can change on a template element must survive a style guide change.
+  const edits: Record<Element['type'], Record<string, unknown>[]> = {
+    text: [{ fill: '#abcdef' }, { fontSize: 33 }, { textAlign: 'right' }, { verticalAlign: 'bottom' }, { lineHeight: 2 }, { charSpacing: 77 }, { fontRole: 'technical' }, { text: 'Edited' },
+      { shadow: { color: '#111111', opacity: 0.5, blur: 3, offsetX: 1, offsetY: 1 } }, { verticalAlign: 'top', fill: '#123123', fontSize: 41 }],
+    shape: [{ fill: '#abcdef' }, { fillMode: 'radial', gradientTo: '#010203' }, { gradientToOpacity: 0.3 }],
+    table: [{ fill: '#abcdef' }, { textColor: '#abcdef' }, { fontSize: 31 }, { padding: 9 }, { textAlign: 'right' }, { verticalAlign: 'bottom' }, { fontRole: 'heading' }],
+    image: [{ fit: 'repeat' }, { imageScale: 1.7 }, { offsetX: 0.2 }, { filters: { blur: 3 } }],
+    qr: [{ url: 'https://example.com' }],
+    rating: [],
+  }
+  const common = [{ opacity: 0.42 }, { name: 'Renamed' }, { x: 13.5 }, { width: 77 }, { rotation: 12 }]
+
+  it('keeps every individual edit on template elements when colors, fonts and text sizes change', () => {
+    const base = createSteamProject()
+    const lost: string[] = []
+    for (const element of base.composition.elements) for (const edit of [...edits[element.type], ...common]) {
+      let project = captureDesignEdits(base, base.composition.elements.map((entry) => entry.id === element.id ? { ...entry, ...edit } as Element : entry))
+      const { styles } = project.composition.design!
+      for (const role of Object.keys(styles.colors) as (keyof typeof styles.colors)[]) styles.colors[role] = '#777777'
+      for (const role of Object.keys(styles.fonts) as (keyof typeof styles.fonts)[]) styles.fonts[role] = 'Verdana'
+      for (const style of Object.values(styles.text)) style.size *= 1.3
+      project = composeDesign(project)
+      const result = project.composition.elements.find((entry) => entry.id === element.id) as unknown as Record<string, unknown>
+      for (const [key, value] of Object.entries(edit)) {
+        if (JSON.stringify(result[key]) !== JSON.stringify(value)) lost.push(`${element.id} ${key}`)
+      }
+    }
+    expect(lost).toEqual([])
+  })
+})
+
+describe('box colors linked to the style guide', () => {
+  it('updates template and added boxes painted with a project color and stops once a custom color is picked', () => {
+    let project = createSteamProject()
+    const colors = project.composition.design!.styles.colors
+    const surface = project.composition.elements.find((element) => element.type === 'shape' && element.id.endsWith(':platform:surface'))! as ShapeElement
+    const added: ShapeElement = { ...surface, id: 'added-box', blockId: undefined, styleRef: undefined, locked: false, fill: colors.spine, fillRole: 'spine', fillMode: 'linear', gradientTo: colors.rating, gradientToRole: 'rating' }
+    project = captureDesignEdits(project, [...project.composition.elements.map((element) => element.id === surface.id ? { ...surface, fill: colors.spine, fillRole: 'spine' as const } : element), added])
+    project.composition.design!.styles.colors.spine = '#00aa00'
+    project.composition.design!.styles.colors.rating = '#0000aa'
+    project = composeDesign(project)
+    const find = (id: string) => project.composition.elements.find((element) => element.id === id) as ShapeElement
+    expect(find(surface.id)).toMatchObject({ fill: '#00aa00', fillRole: 'spine' })
+    expect(find('added-box')).toMatchObject({ fill: '#00aa00', gradientTo: '#0000aa' })
+    expect(validProject(project)).toBe(true)
+
+    project = captureDesignEdits(project, project.composition.elements.map((element) => element.id === surface.id ? { ...element, fill: '#123456', fillRole: undefined } as ShapeElement : element))
+    project.composition.design!.styles.colors.spine = '#aa0000'
+    project = composeDesign(project)
+    expect(find(surface.id).fill).toBe('#123456')
+    expect(find(surface.id).fillRole).toBeUndefined()
+    expect(find('added-box').fill).toBe('#aa0000')
+  })
+})
+
+describe('text and table colors linked to the style guide', () => {
+  it('updates template texts and tables painted with a project color and stops once a custom color is picked', () => {
+    let project = createSteamProject()
+    const caption = text(project, 'shot-1-caption')
+    const table = project.composition.elements.find((element) => element.type === 'table')! as TableElement
+    project = captureDesignEdits(project, project.composition.elements.map((element) =>
+      element.id === caption.id ? { ...caption, fill: '#000001', fillRole: 'brand' as const }
+        : element.id === table.id ? { ...table, fill: '#000002', fillRole: 'spine' as const, textColor: '#000003', textColorRole: 'rating' as const } : element))
+    Object.assign(project.composition.design!.styles.colors, { brand: '#aa0001', spine: '#aa0002', rating: '#aa0003' })
+    project = composeDesign(project)
+    const find = (id: string) => project.composition.elements.find((element) => element.id === id)!
+    expect(find(caption.id)).toMatchObject({ fill: '#aa0001', fillRole: 'brand' })
+    expect(find(table.id)).toMatchObject({ fill: '#aa0002', textColor: '#aa0003' })
+    expect(validProject(project)).toBe(true)
+
+    project = captureDesignEdits(project, project.composition.elements.map((element) => element.id === caption.id ? { ...element, fill: '#123456', fillRole: undefined } as TextElement : element))
+    project.composition.design!.styles.colors.brand = '#bb0001'
+    project = composeDesign(project)
+    expect(find(caption.id)).toMatchObject({ fill: '#123456' })
+    expect((find(caption.id) as TextElement).fillRole).toBeUndefined()
+  })
+})
+
+describe('shadow colors linked to the style guide', () => {
+  it('updates text and image shadows picked from a project color', () => {
+    let project = createSteamProject()
+    const caption = text(project, 'shot-1-caption')
+    const image = project.composition.elements.find((element) => element.type === 'image')! as ImageElement
+    const shadow = { color: '#000000', colorRole: 'brand' as const, opacity: 0.5, blur: 4, offsetX: 1, offsetY: 1 }
+    project = captureDesignEdits(project, project.composition.elements.map((element) =>
+      element.id === caption.id ? { ...caption, shadow } : element.id === image.id ? { ...image, filters: { shadow } } : element))
+    project.composition.design!.styles.colors.brand = '#aa0001'
+    project = composeDesign(project)
+    expect((project.composition.elements.find((element) => element.id === caption.id) as TextElement).shadow?.color).toBe('#aa0001')
+    expect((project.composition.elements.find((element) => element.id === image.id) as ImageElement).filters?.shadow?.color).toBe('#aa0001')
     expect(validProject(project)).toBe(true)
   })
 })

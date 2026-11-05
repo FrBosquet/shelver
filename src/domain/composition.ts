@@ -189,9 +189,12 @@ export function composeDesign(project: Project): Project {
       ...(override.shadow !== undefined ? { shadow: override.shadow ?? undefined } : {}),
       ...(override.lineHeight !== undefined ? { lineHeight: override.lineHeight } : {}),
       ...(override.charSpacing !== undefined ? { charSpacing: override.charSpacing } : {}),
-      ...(override.fill ? { fill: override.fill } : {}) }
+      ...(override.fill ? { fill: override.fill } : {}),
+      ...(override.fillRole ? { fillRole: override.fillRole } : {}) }
     if (resolved.type === 'shape') resolved = { ...resolved,
       ...(override.fill ? { fill: override.fill } : {}),
+      ...(override.fillRole ? { fillRole: override.fillRole } : {}),
+      ...(override.gradientToRole ? { gradientToRole: override.gradientToRole } : {}),
       ...(override.fillMode ? { fillMode: override.fillMode } : {}),
       ...(override.gradientTo !== undefined ? { gradientTo: override.gradientTo } : {}),
       ...(override.gradientToOpacity !== undefined ? { gradientToOpacity: override.gradientToOpacity } : {}) }
@@ -199,6 +202,12 @@ export function composeDesign(project: Project): Project {
   })
   elements.push(...design.extras.map(({ element, placement }) => adaptElement(element, placement, format)))
   for (const element of elements) {
+    // Elements painted with a project color keep following it when the style guide changes.
+    if ((element.type === 'shape' || element.type === 'text' || element.type === 'table') && element.fillRole) element.fill = colors[element.fillRole]
+    if (element.type === 'table' && element.textColorRole) element.textColor = colors[element.textColorRole]
+    if (element.type === 'text' && element.shadow?.colorRole) element.shadow = { ...element.shadow, color: colors[element.shadow.colorRole] }
+    if (element.type === 'image' && element.filters?.shadow?.colorRole) element.filters = { ...element.filters, shadow: { ...element.filters.shadow, color: colors[element.filters.shadow.colorRole] } }
+    if (element.type === 'shape' && element.gradientToRole) element.gradientTo = colors[element.gradientToRole]
     if (element.type === 'image' && element.filters?.tint && element.filters.tintRole) {
       element.filters = { ...element.filters, tint: colors[element.filters.tintRole] }
     }
@@ -243,8 +252,12 @@ export function captureDesignEdits(project: Project, elements: Element[]): Proje
       const block = design.blocks.find((b) => b.id === previous.blockId)
       override.placement = placementOf(next, format, block?.panel)
     }
+    if ((next.type === 'shape' && previous.type === 'shape') || (next.type === 'text' && previous.type === 'text')) {
+      if (next.fillRole !== previous.fillRole) { if (next.fillRole) override.fillRole = next.fillRole; else delete override.fillRole }
+    }
     if (next.type === 'shape' && previous.type === 'shape') {
       if (next.fill !== previous.fill) override.fill = next.fill
+      if (next.gradientToRole !== previous.gradientToRole) { if (next.gradientToRole) override.gradientToRole = next.gradientToRole; else delete override.gradientToRole }
       if (next.fillMode !== previous.fillMode && next.fillMode) override.fillMode = next.fillMode
       if (next.gradientTo !== previous.gradientTo && next.gradientTo !== undefined) override.gradientTo = next.gradientTo
       if (next.gradientToOpacity !== previous.gradientToOpacity && next.gradientToOpacity !== undefined) override.gradientToOpacity = next.gradientToOpacity

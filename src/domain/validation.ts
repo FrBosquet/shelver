@@ -11,6 +11,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 
 function validShadow(value: unknown): boolean {
   return isRecord(value) && typeof value.color === 'string' && /^#[0-9a-f]{6}$/i.test(value.color)
+    && (value.colorRole === undefined || typeof value.colorRole === 'string' && Object.hasOwn(colorLabels, value.colorRole))
     && finite(value.blur) && value.blur >= 0 && value.blur <= 100
     && finite(value.opacity) && value.opacity >= 0 && value.opacity <= 1
     && ['offsetX', 'offsetY'].every((key) => finite(value[key]) && Math.abs(value[key] as number) <= 200)
@@ -55,6 +56,7 @@ function validElement(element: unknown): element is Element {
   if (element.blockId !== undefined && typeof element.blockId !== 'string') return false
   if (element.styleRef !== undefined && typeof element.styleRef !== 'string') return false
   if (element.fontRole !== undefined && !['heading', 'body', 'technical'].includes(String(element.fontRole))) return false
+  if (!['fillRole', 'gradientToRole', 'textColorRole'].every((key) => element[key] === undefined || typeof element[key] === 'string' && Object.hasOwn(colorLabels, element[key]))) return false
   if (element.typeMemory !== undefined && (!isRecord(element.typeMemory) || !Object.entries(element.typeMemory).every(([type, snapshot]) => ['text', 'image', 'shape', 'table', 'rating', 'qr'].includes(type) && isRecord(snapshot) && snapshot.type === type && snapshot.typeMemory === undefined && validElement(snapshot)))) return false
   if (element.type === 'text') return (element.verticalAlign === undefined || ['top', 'middle', 'bottom'].includes(String(element.verticalAlign))) && ['text', 'fontFamily', 'fill'].every((key) => typeof element[key] === 'string') && finite(element.fontSize) && element.fontSize > 0
     && (element.fontWeight === undefined || ['normal', 'bold'].includes(String(element.fontWeight)))
@@ -139,6 +141,7 @@ export function validDesign(value: unknown): value is CoverDesign {
     && (override.charSpacing === undefined || finite(override.charSpacing) && override.charSpacing >= -200 && override.charSpacing <= 2000)
     && (override.opacity === undefined || finite(override.opacity) && override.opacity >= 0 && override.opacity <= 1)
     && (override.gradientTo === undefined || typeof override.gradientTo === 'string')
+    && ['fillRole', 'gradientToRole'].every((key) => override[key] === undefined || typeof override[key] === 'string' && Object.hasOwn(colorLabels, override[key]))
     && (override.fillMode === undefined || ['solid', 'linear', 'radial'].includes(String(override.fillMode)))
     && (override.gradientToOpacity === undefined || finite(override.gradientToOpacity) && override.gradientToOpacity >= 0 && override.gradientToOpacity <= 1)
     && (override.hidden === undefined || typeof override.hidden === 'boolean'))) return false
