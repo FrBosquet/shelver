@@ -55,6 +55,7 @@ function validElement(element: unknown): element is Element {
   if (element.blockId !== undefined && typeof element.blockId !== 'string') return false
   if (element.styleRef !== undefined && typeof element.styleRef !== 'string') return false
   if (element.fontRole !== undefined && !['heading', 'body', 'technical'].includes(String(element.fontRole))) return false
+  if (!['fillRole', 'gradientToRole', 'textColorRole'].every((key) => element[key] === undefined || typeof element[key] === 'string' && Object.hasOwn(colorLabels, element[key]))) return false
   if (element.typeMemory !== undefined && (!isRecord(element.typeMemory) || !Object.entries(element.typeMemory).every(([type, snapshot]) => ['text', 'image', 'shape', 'table', 'rating', 'qr'].includes(type) && isRecord(snapshot) && snapshot.type === type && snapshot.typeMemory === undefined && validElement(snapshot)))) return false
   if (element.type === 'text') return (element.verticalAlign === undefined || ['top', 'middle', 'bottom'].includes(String(element.verticalAlign))) && ['text', 'fontFamily', 'fill'].every((key) => typeof element[key] === 'string') && finite(element.fontSize) && element.fontSize > 0
     && (element.fontWeight === undefined || ['normal', 'bold'].includes(String(element.fontWeight)))
@@ -89,7 +90,6 @@ function validElement(element: unknown): element is Element {
     && (element.icons === undefined || Array.isArray(element.icons) && element.icons.length === element.cells.length && element.icons.every((row, r) => Array.isArray(row) && row.length === (element.cells as unknown[][])[r].length && row.every((icon) => icon === null || tableIcons.some((entry) => entry.id === icon))))
     && typeof element.fill === 'string' && typeof element.textColor === 'string' && finite(element.fontSize) && element.fontSize > 0
   return element.type === 'shape' && typeof element.fill === 'string' && (element.gradientTo === undefined || typeof element.gradientTo === 'string')
-    && ['fillRole', 'gradientToRole'].every((key) => element[key] === undefined || typeof element[key] === 'string' && Object.hasOwn(colorLabels, element[key]))
     && (element.fillMode === undefined || ['solid', 'linear', 'radial'].includes(String(element.fillMode)))
     && (element.gradientToOpacity === undefined || finite(element.gradientToOpacity) && element.gradientToOpacity >= 0 && element.gradientToOpacity <= 1)
 }

@@ -590,9 +590,11 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
     sync(instance, undefined, `text:${records.current.get(object)?.id}`)
   }
 
-  function changeTextStyle(property: 'fill' | 'fontFamily' | 'fontSize' | 'lineHeight' | 'charSpacing', value: string | number) {
+  function changeTextStyle(property: 'fill' | 'fontFamily' | 'fontSize' | 'lineHeight' | 'charSpacing', value: string | number, role?: ColorRole) {
     const instance = canvas.current, object = instance?.getActiveObject()
     if (!instance || !(object instanceof Textbox)) return
+    const original = records.current.get(object)
+    if (property === 'fill' && original?.type === 'text') records.current.set(object, { ...original, fillRole: role })
     object.set({ [property]: value }); object.setCoords(); instance.requestRenderAll(); sync(instance)
     setSelection(readElement(object, records.current.get(object)!))
   }
@@ -726,7 +728,7 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
       const current = readElement(object, original)
       if (!selected.has(object)) return { object, element: current }
       const element = property === 'fill'
-        ? { ...current, ...(current.type === 'table' ? { textColor: value } : current.type === 'shape' ? { fill: value, fillRole: role } : { fill: value }) }
+        ? { ...current, ...(current.type === 'table' ? { textColor: value, textColorRole: role } : current.type === 'shape' || current.type === 'text' ? { fill: value, fillRole: role } : { fill: value }) }
         : { ...current, fontRole: value as FontRole, fontFamily: projectFonts[value as FontRole] }
       return { object, element: element as Element }
     })
@@ -869,7 +871,7 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
           <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{icon.map(([tag, attrs], index) => createElement(tag, { ...attrs, key: index }))}</svg>
         </button>)}
       </div></div>
-      <div className="field">Individual text color<ColorPicker label="Individual text color" colors={project.composition.design?.styles.colors} value={selection.fill.startsWith('#') ? selection.fill : '#172129'} onChange={(color) => changeTextStyle('fill', color)} /></div>
+      <div className="field">Individual text color<ColorPicker label="Individual text color" colors={project.composition.design?.styles.colors} value={selection.fill.startsWith('#') ? selection.fill : '#172129'} onChange={(color, role) => changeTextStyle('fill', color, role)} /></div>
       <label className="field">Font<select aria-label="Individual font" value={selection.fontRole ?? 'body'} onChange={(event) => { const fontRole = event.target.value as FontRole; void editElement({ ...selection, fontRole, fontFamily: projectFonts[fontRole] }) }}>{fontOptions}</select></label>
       <label className="field">Font size (px)<input aria-label="Individual font size" type="number" min="1" max="200" step="1" disabled={busy} value={selection.fontSize} onChange={(event) => { const fontSize = event.target.valueAsNumber; if (Number.isFinite(fontSize) && fontSize >= 1 && fontSize <= 200) changeTextStyle('fontSize', fontSize) }} /></label>
       <label className="field">Leading (line height)<input aria-label="Text leading" type="number" min="0.1" max="10" step="0.05" disabled={busy} value={selection.lineHeight ?? 1.16} onChange={(event) => { const value = event.target.valueAsNumber; if (Number.isFinite(value) && value >= 0.1 && value <= 10) changeTextStyle('lineHeight', value) }} /></label>
@@ -897,8 +899,8 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
     {selection?.type === 'rating' && <label className="field">PEGI rating<select value={selection.rating} onChange={(event) => void editElement({ ...selection, rating: event.target.value as typeof selection.rating })}>{['3', '7', '12', '16', '18'].map((rating) => <option key={rating}>{rating}</option>)}</select><span className="small muted">Editable rating placeholder. Use an image for an official badge.</span></label>}
     {selection?.type === 'table' && <div className="selection-styles">
       <div className="form-row">
-        <div className="field">Background color<ColorPicker label="Table background color" colors={project.composition.design?.styles.colors} value={selection.fill} onChange={(color) => void editElement({ ...selection, fill: color })} /></div>
-        <div className="field">Text & icon color<ColorPicker label="Table text color" colors={project.composition.design?.styles.colors} value={selection.textColor} onChange={(color) => void editElement({ ...selection, textColor: color })} /></div>
+        <div className="field">Background color<ColorPicker label="Table background color" colors={project.composition.design?.styles.colors} value={selection.fill} onChange={(color, role) => void editElement({ ...selection, fill: color, fillRole: role })} /></div>
+        <div className="field">Text & icon color<ColorPicker label="Table text color" colors={project.composition.design?.styles.colors} value={selection.textColor} onChange={(color, role) => void editElement({ ...selection, textColor: color, textColorRole: role })} /></div>
       </div>
       <label className="field">Font<select aria-label="Table font" value={selection.fontRole ?? 'technical'} onChange={(event) => { const fontRole = event.target.value as FontRole; void editElement({ ...selection, fontRole, fontFamily: projectFonts[fontRole] }) }}>{fontOptions}</select></label>
       <label className="field">Font size (px)<input aria-label="Table font size" type="number" min="1" max="200" step="1" value={selection.fontSize} onChange={(event) => { const fontSize = event.target.valueAsNumber; if (fontSize > 0 && fontSize <= 200) void editElement({ ...selection, fontSize }) }} /></label>

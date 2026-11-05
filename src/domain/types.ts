@@ -40,6 +40,7 @@ export type TextElement = BaseElement & {
   fontFamily: string
   fontSize: number
   fill: string
+  fillRole?: ColorRole
     fontWeight?: 'normal' | 'bold'
     textAlign?: 'left' | 'center' | 'right' | 'balanced'
     verticalAlign?: 'top' | 'middle' | 'bottom'
@@ -51,7 +52,7 @@ export type ImageShadow = { color: string; blur: number; offsetX: number; offset
 export type ImageFilters = { blur?: number; backdropBlur?: number; shadow?: ImageShadow; brightness?: number; contrast?: number; saturation?: number; grayscale?: boolean; invert?: boolean; tint?: string; tintRole?: ColorRole }
 export type ImageElement = BaseElement & { type: 'image'; assetId: string; filters?: ImageFilters; fit?: 'cover' | 'contain' | 'repeat'; imageScale?: number; offsetX?: number; offsetY?: number; focalX?: number; focalY?: number }
 export type ShapeElement = BaseElement & { type: 'shape'; fill: string; fillRole?: ColorRole; fillMode?: 'solid' | 'linear' | 'radial'; gradientTo?: string; gradientToRole?: ColorRole; gradientToOpacity?: number }
-export type TableElement = BaseElement & { type: 'table'; verticalAlign?: 'top' | 'middle' | 'bottom'; fontRole?: FontRole; textAlign?: 'left' | 'center' | 'right' | 'balanced'; fontFamily?: string; icons?: (TableIconId | null)[][]; padding?: number; contentFormat?: 'markdown'; cells: string[][]; fill: string; textColor: string; fontSize: number }
+export type TableElement = BaseElement & { type: 'table'; verticalAlign?: 'top' | 'middle' | 'bottom'; fontRole?: FontRole; textAlign?: 'left' | 'center' | 'right' | 'balanced'; fontFamily?: string; icons?: (TableIconId | null)[][]; padding?: number; contentFormat?: 'markdown'; cells: string[][]; fill: string; fillRole?: ColorRole; textColor: string; textColorRole?: ColorRole; fontSize: number }
 export type RatingElement = BaseElement & { type: 'rating'; rating: '3' | '7' | '12' | '16' | '18' }
 export type QrElement = BaseElement & { type: 'qr'; url: string }
 export type Element = QrElement | TextElement | ImageElement | ShapeElement | TableElement | RatingElement

@@ -4,7 +4,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { adaptElement, captureDesignEdits, composeDesign, placementOf, referencedAssetIds, remapDesign } from './composition'
 import { createProject, pcTemplate } from './projects'
 import { createSteamProject, workingFormats } from './steamTemplate'
-import type { Asset, Element, ImageElement, Project, RatingElement, ShapeElement, TextElement } from './types'
+import type { Asset, Element, ImageElement, Project, RatingElement, ShapeElement, TableElement, TextElement } from './types'
 import { validProject } from './validation'
 import { WorkspaceStore } from '../storage/workspaceStore'
 import { IndexedDbWorkspaceRepository } from '../storage/workspaceRepository'
@@ -483,5 +483,28 @@ describe('box colors linked to the style guide', () => {
     expect(find(surface.id).fill).toBe('#123456')
     expect(find(surface.id).fillRole).toBeUndefined()
     expect(find('added-box').fill).toBe('#aa0000')
+  })
+})
+
+describe('text and table colors linked to the style guide', () => {
+  it('updates template texts and tables painted with a project color and stops once a custom color is picked', () => {
+    let project = createSteamProject()
+    const caption = text(project, 'shot-1-caption')
+    const table = project.composition.elements.find((element) => element.type === 'table')! as TableElement
+    project = captureDesignEdits(project, project.composition.elements.map((element) =>
+      element.id === caption.id ? { ...caption, fill: '#000001', fillRole: 'brand' as const }
+        : element.id === table.id ? { ...table, fill: '#000002', fillRole: 'spine' as const, textColor: '#000003', textColorRole: 'rating' as const } : element))
+    Object.assign(project.composition.design!.styles.colors, { brand: '#aa0001', spine: '#aa0002', rating: '#aa0003' })
+    project = composeDesign(project)
+    const find = (id: string) => project.composition.elements.find((element) => element.id === id)!
+    expect(find(caption.id)).toMatchObject({ fill: '#aa0001', fillRole: 'brand' })
+    expect(find(table.id)).toMatchObject({ fill: '#aa0002', textColor: '#aa0003' })
+    expect(validProject(project)).toBe(true)
+
+    project = captureDesignEdits(project, project.composition.elements.map((element) => element.id === caption.id ? { ...element, fill: '#123456', fillRole: undefined } as TextElement : element))
+    project.composition.design!.styles.colors.brand = '#bb0001'
+    project = composeDesign(project)
+    expect(find(caption.id)).toMatchObject({ fill: '#123456' })
+    expect((find(caption.id) as TextElement).fillRole).toBeUndefined()
   })
 })
