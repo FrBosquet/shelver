@@ -39,9 +39,11 @@ type Props = {
   onUndo: () => void
   onRedo: () => void
   onResetElement: (id: string) => void
+  /** Bumped by the store when the project changes outside the canvas (undo/redo, template, format). */
+  revision: number
 }
 
-export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockId, onSelectBlock, project, assets, onChange, initialZoom, onZoomChange, canUndo, canRedo, onUndo, onRedo, onResetElement }: Props) {
+export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockId, onSelectBlock, project, assets, onChange, initialZoom, onZoomChange, canUndo, canRedo, onUndo, onRedo, onResetElement, revision }: Props) {
   const canvasElement = useRef<HTMLCanvasElement>(null)
   const workspace = useRef<HTMLDivElement>(null)
   const canvas = useRef<Canvas | null>(null)
@@ -49,6 +51,7 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
   const records = useRef(new Map<FabricObject, Element>())
   const initial = useRef({ project, assets, initialZoom, onZoomChange })
   const applyingSelection = useRef(false)
+  const reconciling = useRef(false)
   const replacingSelectedElement = useRef(false)
   const canvasSelectionId = useRef<string | null>(null)
   const blockSelectionHandler = useRef(onSelectBlock)
@@ -80,6 +83,9 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
   useEffect(() => { changeHandler.current = onChange }, [onChange])
 
   function sync(instance: Canvas, asset?: Asset, group?: string) {
+    // The canvas is about to be replaced with the restored project; do not
+    // overwrite it with the outgoing frame.
+    if (reconciling.current) return
     setWarnings(instance.getObjects().flatMap((object) => {
       const element = records.current.get(object)
       return object instanceof Textbox && element?.type === 'text' && element.blockId && object.calcTextHeight() > readElement(object, element).height * 1.05
@@ -178,47 +184,74 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
     }
   }, [])
 
+  // Undo/redo, template and format changes arrive as a new revision (palette
+  // edits only change the colors). Reconcile the existing canvas in place so
+  // the current frame stays visible until the replacement is ready.
   const paletteKey = JSON.stringify(project.composition.design?.styles.colors)
-  const appliedPalette = useRef(paletteKey)
+  const refreshKey = `${revision}:${paletteKey}`
+  const appliedRefresh = useRef(refreshKey)
   useEffect(() => {
     const instance = canvas.current
-    if (!instance || !ready || appliedPalette.current === paletteKey) return
+    if (!instance || !ready || appliedRefresh.current === refreshKey) return
+    reconciling.current = true
     const controller = new AbortController()
-    const nextElements = project.composition.elements
-    const changed = instance.getObjects().flatMap((object) => {
-      const previous = records.current.get(object)
-      const next = nextElements.find((element) => element.id === previous?.id)
-      return previous && next && JSON.stringify(previous) !== JSON.stringify(next) ? [{ object, next }] : []
-    })
-    // Keep the current frame visible until every changed element is ready.
-    void Promise.all(changed.map(async ({ object, next }) => ({ object, next, rendered: await renderElement(next, assets, controller.signal, Boolean(project.composition.design?.overrides[next.id]?.replacement)) }))).then((updates) => {
-      if (controller.signal.aborted || canvas.current !== instance) { updates.forEach(({ rendered }) => rendered.dispose()); return }
-      const selectedIds = instance.getActiveObjects().map((object) => records.current.get(object)?.id)
+    const { elements: nextElements, background, format: nextFormat } = composeDesign(project).composition
+    const current = new Map(instance.getObjects().flatMap((object) => {
+      const record = records.current.get(object)
+      return record ? [[record.id, { object, element: readElement(object, record) }] as const] : []
+    }))
+    const replacement = (element: Element) => Boolean(project.composition.design?.overrides[element.id]?.replacement)
+    void Promise.all(nextElements.map(async (next) => {
+      const existing = current.get(next.id)
+      if (existing && JSON.stringify(existing.element) === JSON.stringify(next)) return { next, object: existing.object, rendered: false }
+      return { next, object: await renderElement(next, assets, controller.signal, replacement(next)), rendered: true }
+    })).then((items) => {
+      if (controller.signal.aborted || canvas.current !== instance) { items.forEach(({ object, rendered }) => { if (rendered) object.dispose() }); return }
+      const selectedIds = instance.getActiveObjects().flatMap((object) => records.current.get(object)?.id ?? [])
       applyingSelection.current = true
       instance.discardActiveObject()
       const renderOnAddRemove = instance.renderOnAddRemove
       instance.renderOnAddRemove = false
-      for (const { object, next, rendered } of updates) {
-        const index = instance.getObjects().indexOf(object)
+      const kept = new Set(items.map(({ object }) => object))
+      for (const object of [...instance.getObjects()]) {
+        if (kept.has(object)) continue
         instance.remove(object)
         records.current.delete(object)
-        records.current.set(rendered, next)
-        instance.insertAt(index, rendered)
         object.dispose()
       }
-      instance.backgroundColor = project.composition.background
-      const selected = instance.getObjects().filter((object) => selectedIds.includes(records.current.get(object)?.id))
+      items.forEach(({ next, object }, index) => {
+        records.current.set(object, next)
+        if (instance.getObjects().includes(object)) instance.moveObjectTo(object, index)
+        else instance.insertAt(index, object)
+      })
+      instance.backgroundColor = background
+      const zoomLevel = instance.getZoom()
+      if (instance.getWidth() !== nextFormat.width * zoomLevel || instance.getHeight() !== nextFormat.height * zoomLevel) {
+        instance.setDimensions({ width: nextFormat.width * zoomLevel, height: nextFormat.height * zoomLevel })
+      }
+      const selected = instance.getObjects().filter((object) => selectedIds.includes(records.current.get(object)?.id ?? ''))
       if (selected.length === 1) instance.setActiveObject(selected[0])
       else if (selected.length > 1) instance.setActiveObject(new ActiveSelection(selected, { canvas: instance }))
       instance.renderOnAddRemove = renderOnAddRemove
       applyingSelection.current = false
-      appliedPalette.current = paletteKey
-      instance.requestRenderAll()
+      if (!selected.length && selectedIds.length) {
+        canvasSelectionId.current = ''
+        blockSelectionHandler.current('')
+      }
+      setWarnings(items.filter(({ object, next }) => object instanceof Textbox && next.blockId && object.calcTextHeight() > next.height * 1.05).map(({ next }) => ({ id: next.id, name: next.name })))
+      setExported(null)
+      appliedRefresh.current = refreshKey
+      reconciling.current = false
+      // Paint synchronously: resizing clears the bitmap, and a deferred render
+      // would leave one empty frame.
+      instance.renderAll()
     }).catch((cause: unknown) => {
-      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Unable to update project colors.')
+      if (controller.signal.aborted) return
+      reconciling.current = false
+      setError(cause instanceof Error ? cause.message : 'Unable to update this cover.')
     })
-    return () => controller.abort()
-  }, [paletteKey, ready, project, assets])
+    return () => { controller.abort(); reconciling.current = false }
+  }, [refreshKey, ready, project, assets])
 
   useEffect(() => {
     const instance = canvas.current
