@@ -4,7 +4,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { adaptElement, captureDesignEdits, composeDesign, placementOf, referencedAssetIds, remapDesign } from './composition'
 import { createProject, pcTemplate } from './projects'
 import { createSteamProject, workingFormats } from './steamTemplate'
-import type { Asset, ImageElement, Project, RatingElement, TextElement } from './types'
+import type { Asset, ImageElement, Project, RatingElement, ShapeElement, TextElement } from './types'
 import { validProject } from './validation'
 import { WorkspaceStore } from '../storage/workspaceStore'
 import { IndexedDbWorkspaceRepository } from '../storage/workspaceRepository'
@@ -409,5 +409,23 @@ describe('element opacity', () => {
       expect(recomposed.composition.elements.find((entry) => entry.id === element.id)?.opacity).toBe(element.opacity)
     }
     expect(validProject(recomposed)).toBe(true)
+  })
+})
+
+describe('box gradients', () => {
+  it('keeps gradient mode, destination color and destination opacity when shared colors change', () => {
+    let project = createSteamProject()
+    const surface = project.composition.elements.find((element) => element.type === 'shape' && element.id.endsWith(':surface'))!
+    const background = project.composition.elements.find((element) => element.type === 'shape' && element.id.endsWith(':background'))!
+    const edited = project.composition.elements.map((element) => element.id === surface.id ? { ...element, gradientToOpacity: 0.25 }
+      : element.id === background.id ? { ...element, fillMode: 'radial' as const, gradientTo: '#123456', gradientToOpacity: 0.4 } : element)
+    project = captureDesignEdits(project, edited)
+    project.composition.design!.styles.colors.brand = '#ff0000'
+    project.composition.design!.styles.colors.spine = '#00ff00'
+    project = composeDesign(project)
+    const find = (id: string) => project.composition.elements.find((element) => element.id === id) as ShapeElement
+    expect(find(surface.id)).toMatchObject({ fill: '#ff0000', gradientTo: '#ff000000', gradientToOpacity: 0.25 })
+    expect(find(background.id)).toMatchObject({ fill: '#00ff00', fillMode: 'radial', gradientTo: '#123456', gradientToOpacity: 0.4 })
+    expect(validProject(project)).toBe(true)
   })
 })
