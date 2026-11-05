@@ -4,7 +4,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { adaptElement, captureDesignEdits, composeDesign, placementOf, referencedAssetIds, remapDesign } from './composition'
 import { createProject, pcTemplate } from './projects'
 import { createSteamProject, workingFormats } from './steamTemplate'
-import type { Asset, ImageElement, Project, RatingElement, ShapeElement, TextElement } from './types'
+import type { Asset, Element, ImageElement, Project, RatingElement, ShapeElement, TextElement } from './types'
 import { validProject } from './validation'
 import { WorkspaceStore } from '../storage/workspaceStore'
 import { IndexedDbWorkspaceRepository } from '../storage/workspaceRepository'
@@ -427,5 +427,37 @@ describe('box gradients', () => {
     expect(find(surface.id)).toMatchObject({ fill: '#ff0000', gradientTo: '#ff000000', gradientToOpacity: 0.25 })
     expect(find(background.id)).toMatchObject({ fill: '#00ff00', fillMode: 'radial', gradientTo: '#123456', gradientToOpacity: 0.4 })
     expect(validProject(project)).toBe(true)
+  })
+})
+
+describe('shared style changes', () => {
+  // Every setting the inspector can change on a template element must survive a style guide change.
+  const edits: Record<Element['type'], Record<string, unknown>[]> = {
+    text: [{ fill: '#abcdef' }, { fontSize: 33 }, { textAlign: 'right' }, { verticalAlign: 'bottom' }, { lineHeight: 2 }, { charSpacing: 77 }, { fontRole: 'technical' }, { text: 'Edited' },
+      { shadow: { color: '#111111', opacity: 0.5, blur: 3, offsetX: 1, offsetY: 1 } }, { verticalAlign: 'top', fill: '#123123', fontSize: 41 }],
+    shape: [{ fill: '#abcdef' }, { fillMode: 'radial', gradientTo: '#010203' }, { gradientToOpacity: 0.3 }],
+    table: [{ fill: '#abcdef' }, { textColor: '#abcdef' }, { fontSize: 31 }, { padding: 9 }, { textAlign: 'right' }, { verticalAlign: 'bottom' }, { fontRole: 'heading' }],
+    image: [{ fit: 'repeat' }, { imageScale: 1.7 }, { offsetX: 0.2 }, { filters: { blur: 3 } }],
+    qr: [{ url: 'https://example.com' }],
+    rating: [],
+  }
+  const common = [{ opacity: 0.42 }, { name: 'Renamed' }, { x: 13.5 }, { width: 77 }, { rotation: 12 }]
+
+  it('keeps every individual edit on template elements when colors, fonts and text sizes change', () => {
+    const base = createSteamProject()
+    const lost: string[] = []
+    for (const element of base.composition.elements) for (const edit of [...edits[element.type], ...common]) {
+      let project = captureDesignEdits(base, base.composition.elements.map((entry) => entry.id === element.id ? { ...entry, ...edit } as Element : entry))
+      const { styles } = project.composition.design!
+      for (const role of Object.keys(styles.colors) as (keyof typeof styles.colors)[]) styles.colors[role] = '#777777'
+      for (const role of Object.keys(styles.fonts) as (keyof typeof styles.fonts)[]) styles.fonts[role] = 'Verdana'
+      for (const style of Object.values(styles.text)) style.size *= 1.3
+      project = composeDesign(project)
+      const result = project.composition.elements.find((entry) => entry.id === element.id) as unknown as Record<string, unknown>
+      for (const [key, value] of Object.entries(edit)) {
+        if (JSON.stringify(result[key]) !== JSON.stringify(value)) lost.push(`${element.id} ${key}`)
+      }
+    }
+    expect(lost).toEqual([])
   })
 })
