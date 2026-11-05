@@ -6,7 +6,7 @@ import { qrMatrix } from '../domain/qr'
 import { tableIcons } from '../domain/tableIcons'
 import { switchElementType } from '../domain/elementTypes'
 import { createElement, useEffect, useEffectEvent, useRef, useState } from 'react'
-import { AlignLeft, AlignCenter, AlignRight, AlignJustify, ArrowUpToLine, ChevronsDownUp, ArrowDownToLine, ArrowDown, ArrowUp, BringToFront, SendToBack, Copy, ImagePlus, Crop, RotateCcw, RotateCw, RotateCcwSquare, Undo2 } from 'lucide'
+import { AlignLeft, AlignCenter, AlignRight, AlignJustify, ArrowUpToLine, ChevronsDownUp, ArrowDownToLine, ArrowDown, ArrowUp, BringToFront, SendToBack, Copy, ImagePlus, Crop, RotateCcw, RotateCw, RotateCcwSquare, Undo2, AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal, AlignHorizontalSpaceBetween, AlignVerticalSpaceBetween } from 'lucide'
 import { createPortal } from 'react-dom'
 import { ActiveSelection, Canvas, FabricImage, Textbox } from 'fabric'
 import type { FabricObject } from 'fabric'
@@ -22,6 +22,7 @@ import { caseFormats } from '../domain/caseFormats'
 import { selectionStyle } from './selectionStyle'
 import { selectionBounds } from './selectionBounds'
 import { updateImageFilters } from './imageFilters'
+import { alignOffsets, distributeOffsets, type AlignMode, type DistributeAxis } from './alignment'
 
 type Props = {
   onFormat: (format: Project['composition']['format']) => void
@@ -714,6 +715,27 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
     void editElement(next).catch(() => setError('Unable to apply image filters.'))
   }
 
+  function arrangeSelection(action: { align: AlignMode } | { distribute: DistributeAxis }) {
+    const instance = canvas.current
+    if (!instance || busy) return
+    const objects = instance.getActiveObjects().filter((object) => records.current.has(object))
+    if (objects.length < 2 || ('distribute' in action && objects.length < 3)) return
+    applyingSelection.current = true
+    // Leaving the active selection puts every object back in canvas coordinates.
+    instance.discardActiveObject()
+    const boxes = objects.map((object) => object.getBoundingRect())
+    const offsets = 'align' in action ? alignOffsets(boxes, action.align) : distributeOffsets(boxes, action.distribute)
+    objects.forEach((object, index) => {
+      const { dx, dy } = offsets[index]
+      object.set({ left: object.left + (object.lockMovementX ? 0 : dx), top: object.top + (object.lockMovementY ? 0 : dy) })
+      object.setCoords()
+    })
+    instance.setActiveObject(new ActiveSelection(objects, { canvas: instance }))
+    applyingSelection.current = false
+    instance.requestRenderAll()
+    sync(instance)
+  }
+
   const projectFonts = project.composition.design?.styles.fonts ?? { heading: 'Georgia', body: 'Arial', technical: 'Arial' }
   const fontOptions = (['heading', 'body', 'technical'] as const).map((role) => <option key={role} value={role}>{role[0].toUpperCase() + role.slice(1)} · {projectFonts[role]}</option>)
   const commonType = multipleElements.length > 1 && multipleElements.every((element) => element.type === multipleElements[0].type) ? multipleElements[0].type : null
@@ -782,6 +804,31 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
 
   const multipleControls = <section className="element-controls" aria-label="Selected elements settings">
     <p className="eyebrow">{selectionCount} ELEMENTS SELECTED</p>
+    <div className="selection-styles alignment-controls">
+      <div className="field">Align
+        <div className="alignment-row">
+          {([
+            [['left', 'Align left', AlignStartVertical], ['centerX', 'Center horizontally', AlignCenterVertical], ['right', 'Align right', AlignEndVertical]],
+            [['top', 'Align top', AlignStartHorizontal], ['centerY', 'Center vertically', AlignCenterHorizontal], ['bottom', 'Align bottom', AlignEndHorizontal]],
+          ] as const).map((group, groupIndex) => <div key={groupIndex} className="layer-order-actions" role="group" aria-label={groupIndex ? 'Vertical alignment' : 'Horizontal alignment'}>
+            {group.map(([mode, label, icon]) => <button key={mode} className="layer-order-button" title={label} aria-label={label} disabled={busy} onClick={() => arrangeSelection({ align: mode })}>
+              <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                {icon.map(([tag, attrs], index) => createElement(tag, { ...attrs, key: index }))}
+              </svg>
+            </button>)}
+          </div>)}
+        </div>
+      </div>
+      <div className="field">Distribute evenly
+        <div className="layer-order-actions" role="group" aria-label="Distribute evenly">
+          {([['horizontal', 'Distribute horizontally', AlignHorizontalSpaceBetween], ['vertical', 'Distribute vertically', AlignVerticalSpaceBetween]] as const).map(([axis, label, icon]) => <button key={axis} className="layer-order-button" title={selectionCount < 3 ? `${label} (select at least 3 elements)` : label} aria-label={label} disabled={busy || selectionCount < 3} onClick={() => arrangeSelection({ distribute: axis })}>
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              {icon.map(([tag, attrs], index) => createElement(tag, { ...attrs, key: index }))}
+            </svg>
+          </button>)}
+        </div>
+      </div>
+    </div>
     {opacityControl}
     {commonType === 'image' ? imageFilterControls : commonType && ['text', 'shape', 'table'].includes(commonType) ? <>
       <div className="field">{commonType === 'shape' ? 'Color' : 'Text color'}{!commonValue('fill') && <span className="small muted">Mixed colors</span>}<ColorPicker label="Selected elements color" colors={project.composition.design?.styles.colors} value={commonValue('fill') || '#172129'} onChange={(color, role) => void changeCommonStyle('fill', color, role)} /></div>

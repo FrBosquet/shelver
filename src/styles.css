@@ -326,6 +326,7 @@ textarea { display: block; width: 100%; resize: vertical; padding: 11px; margin-
 .rotation-controls > .field { flex: 1; min-width: 0; margin-bottom: 0; }
 .rotation-controls > .layer-order-actions { flex-shrink: 0; }
 .layer-order-actions { display: flex; gap: 0; }
+.alignment-row { display: flex; flex-wrap: wrap; gap: 10px; }
 .layer-order-actions .layer-order-button { border-radius: 0; }
 .layer-order-actions .layer-order-button + .layer-order-button { margin-left: -1px; }
 .layer-order-actions .layer-order-button:first-child { border-radius: 4px 0 0 4px; }
