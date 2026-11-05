@@ -190,7 +190,11 @@ export function composeDesign(project: Project): Project {
       ...(override.lineHeight !== undefined ? { lineHeight: override.lineHeight } : {}),
       ...(override.charSpacing !== undefined ? { charSpacing: override.charSpacing } : {}),
       ...(override.fill ? { fill: override.fill } : {}) }
-    if (resolved.type === 'shape' && override.fill) resolved = { ...resolved, fill: override.fill }
+    if (resolved.type === 'shape') resolved = { ...resolved,
+      ...(override.fill ? { fill: override.fill } : {}),
+      ...(override.fillMode ? { fillMode: override.fillMode } : {}),
+      ...(override.gradientTo !== undefined ? { gradientTo: override.gradientTo } : {}),
+      ...(override.gradientToOpacity !== undefined ? { gradientToOpacity: override.gradientToOpacity } : {}) }
     return { ...resolved, name: override.name ?? resolved.name, opacity: override.opacity ?? resolved.opacity, visible: !override.hidden }
   })
   elements.push(...design.extras.map(({ element, placement }) => adaptElement(element, placement, format)))
@@ -239,7 +243,12 @@ export function captureDesignEdits(project: Project, elements: Element[]): Proje
       const block = design.blocks.find((b) => b.id === previous.blockId)
       override.placement = placementOf(next, format, block?.panel)
     }
-    if (next.type === 'shape' && previous.type === 'shape' && next.fill !== previous.fill) override.fill = next.fill
+    if (next.type === 'shape' && previous.type === 'shape') {
+      if (next.fill !== previous.fill) override.fill = next.fill
+      if (next.fillMode !== previous.fillMode && next.fillMode) override.fillMode = next.fillMode
+      if (next.gradientTo !== previous.gradientTo && next.gradientTo !== undefined) override.gradientTo = next.gradientTo
+      if (next.gradientToOpacity !== previous.gradientToOpacity && next.gradientToOpacity !== undefined) override.gradientToOpacity = next.gradientToOpacity
+    }
     if (next.type === 'text' && previous.type === 'text') {
       if (next.text !== previous.text) override.text = next.text
       if (next.fill !== previous.fill) override.fill = next.fill

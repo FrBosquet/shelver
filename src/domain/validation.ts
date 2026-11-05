@@ -138,6 +138,9 @@ export function validDesign(value: unknown): value is CoverDesign {
     && (override.lineHeight === undefined || finite(override.lineHeight) && override.lineHeight > 0 && override.lineHeight <= 10)
     && (override.charSpacing === undefined || finite(override.charSpacing) && override.charSpacing >= -200 && override.charSpacing <= 2000)
     && (override.opacity === undefined || finite(override.opacity) && override.opacity >= 0 && override.opacity <= 1)
+    && (override.gradientTo === undefined || typeof override.gradientTo === 'string')
+    && (override.fillMode === undefined || ['solid', 'linear', 'radial'].includes(String(override.fillMode)))
+    && (override.gradientToOpacity === undefined || finite(override.gradientToOpacity) && override.gradientToOpacity >= 0 && override.gradientToOpacity <= 1)
     && (override.hidden === undefined || typeof override.hidden === 'boolean'))) return false
   const extraIds = new Set<string>()
   if (value.layerOrder !== undefined && (!Array.isArray(value.layerOrder) || !value.layerOrder.every((id) => typeof id === 'string' && Boolean(id)) || new Set(value.layerOrder).size !== value.layerOrder.length)) return false

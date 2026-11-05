@@ -111,7 +111,7 @@ export type Placement = {
   panel: Panel['id']; referenceWidth: number; referenceHeight: number; referenceX: number
   x: number; y: number; width: number; height: number; scaleX: number; scaleY: number; rotation: number
 }
-export type ElementOverride = { name?: string; opacity?: number; fontRole?: FontRole; replacement?: Element; placement?: Placement; text?: string; fill?: string; fontFamily?: string; fontSize?: number; lineHeight?: number; charSpacing?: number; shadow?: ImageShadow | null; hidden?: boolean }
+export type ElementOverride = { name?: string; opacity?: number; fontRole?: FontRole; replacement?: Element; placement?: Placement; text?: string; fill?: string; fillMode?: ShapeElement['fillMode']; gradientTo?: string; gradientToOpacity?: number; fontFamily?: string; fontSize?: number; lineHeight?: number; charSpacing?: number; shadow?: ImageShadow | null; hidden?: boolean }
 export type CoverDesign = {
   version: 1; instanceId: string; templateId: 'steam-editorial-v1'; templateName: string
   steamLayoutVersion?: 1
