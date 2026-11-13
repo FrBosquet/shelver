@@ -1,4 +1,8 @@
-/** Print an already rendered cover; millimetres keep the output independent of editor zoom. */
+/**
+ * Print an already rendered cover; millimetres keep the output independent of editor zoom.
+ * The cover is rotated onto an A4 portrait sheet: WebKit browsers ignore `@page { size: landscape }`
+ * and shrink a landscape layout to fit the portrait default, which loses the real dimensions.
+ */
 export async function printCover(source: string, width: number, height: number) {
   // Leave space for crop marks and the printer's non-printable edges.
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0 || width > 277 || height > 190) {
@@ -13,15 +17,16 @@ export async function printCover(source: string, width: number, height: number) 
     const view = frame.contentWindow!
     doc.open()
     doc.write(`<!doctype html><html><head><title>Cover</title><style>
-      @page { size: A4 landscape; margin: 0; }
+      @page { size: A4 portrait; margin: 0; }
       * { box-sizing: border-box; }
-      html, body { margin: 0; padding: 0; width: 297mm; height: 210mm; }
+      html, body { margin: 0; padding: 0; width: 210mm; height: 297mm; }
       body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-      .page { position: relative; width: 297mm; height: 210mm; overflow: hidden; break-inside: avoid; }
-      .cover { position: absolute; left: ${(297 - width) / 2}mm; top: ${(210 - height) / 2}mm; width: ${width}mm; height: ${height}mm; }
+      .page { position: relative; width: 210mm; height: 297mm; overflow: hidden; break-inside: avoid; }
+      .slot { position: absolute; left: ${(210 - height) / 2}mm; top: ${(297 - width) / 2}mm; width: ${height}mm; height: ${width}mm; }
+      .cover { position: absolute; left: 0; top: 0; width: ${width}mm; height: ${height}mm; transform-origin: 0 0; transform: translateX(${height}mm) rotate(90deg); }
       img { display: block; width: 100%; height: 100%; }
       svg { position: absolute; left: -6mm; top: -6mm; width: ${width + 12}mm; height: ${height + 12}mm; overflow: visible; }
-    </style></head><body><div class="page"><div class="cover"></div></div></body></html>`)
+    </style></head><body><div class="page"><div class="slot"><div class="cover"></div></div></div></body></html>`)
     doc.close()
     const cover = doc.querySelector('.cover')!
     const img = doc.createElement('img')
