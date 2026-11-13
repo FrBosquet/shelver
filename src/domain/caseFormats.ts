@@ -21,3 +21,6 @@ export const caseFormats = [
   caseFormat('ps3-standard', 'PS3 · 273 × 149 mm · 14 mm spine', 273, 149, 14),
   caseFormat('xbox-one-series-standard', 'Xbox One / Series X · 267 × 149 mm · 11 mm spine', 267, 149, 11),
 ]
+
+/** Default case format for new Steam-template projects: Steam covers are printed at Switch size. */
+export const steamCaseFormat = caseFormats.find((format) => format.id === 'switch-standard')!

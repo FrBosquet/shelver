@@ -4,7 +4,7 @@ import { useWorkspace } from './storage/useWorkspace'
 import { TemplateInspector } from './editor/TemplateInspector'
 import { ProjectActions } from './ProjectActions'
 import { ProjectPreview } from './ProjectPreview'
-import { caseFormats } from './domain/caseFormats'
+import { caseFormats, steamCaseFormat } from './domain/caseFormats'
 
 const Editor = lazy(() => import('./editor/Editor').then((module) => ({ default: module.Editor })))
 
@@ -63,7 +63,8 @@ export function App() {
   }
 
   function newProject(steam = false) {
-    const id = steam ? store.createSteam(caseFormats[0]) : store.create()
+    // Steam covers are printed at Switch case size; blank projects keep the first (DVD) format.
+    const id = steam ? store.createSteam(steamCaseFormat) : store.create()
     if (id) {
       if (!steam) store.changeFormat(id, caseFormats[0])
       setActiveId(id)
