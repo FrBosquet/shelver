@@ -65,6 +65,7 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
   const imageTarget = useRef<Element | null>(null)
   const [ready, setReady] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [printing, setPrinting] = useState(false)
   const [showLogos, setShowLogos] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedText, setSelectedText] = useState<string | null>(null)
@@ -650,17 +651,20 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
     const instance = canvas.current
     if (!instance || !ready) return
     setBusy(true)
+    setPrinting(true)
     setError(null)
     try {
+      if (!printWidth || !printHeight) throw new Error('Choose a case format before printing.')
+      // Let the button show its busy label before the synchronous full-size render.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve)))
       await document.fonts.ready
       if (canvas.current !== instance) return
-      const source = instance.toDataURL({ format: 'png', multiplier: 1 / instance.getZoom() })
-      if (!printWidth || !printHeight) throw new Error('Choose a case format before printing.')
+      const source = instance.toCanvasElement(1 / instance.getZoom())
       await printCover(source, printWidth, printHeight)
     } catch (cause) {
       if (mounted.current) setError(cause instanceof Error ? cause.message : 'Unable to print this cover.')
     } finally {
-      if (mounted.current) setBusy(false)
+      if (mounted.current) { setBusy(false); setPrinting(false) }
     }
   }
 
@@ -1042,7 +1046,7 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
             </select>
           </label>
           <button className="primary" disabled={!ready || busy} onClick={() => void exportPng()}>{busy ? 'Working…' : 'Export PNG ↗'}</button>
-          <button disabled={!ready || busy || !format.printSize} onClick={() => void print()}>Print</button>
+          <button disabled={!ready || busy || !format.printSize} onClick={() => void print()}>{printing ? 'Preparing print…' : 'Print'}</button>
         </div>
       </div>
       <div className="print-settings">
