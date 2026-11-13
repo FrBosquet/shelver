@@ -656,7 +656,7 @@ export function Editor({ onFormat, onUploadAssets, inspectorHost, selectedBlockI
     try {
       if (!printWidth || !printHeight) throw new Error('Choose a case format before printing.')
       // Let the button show its busy label before the synchronous full-size render.
-      await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve)))
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
       await document.fonts.ready
       if (canvas.current !== instance) return
       const source = instance.toCanvasElement(1 / instance.getZoom())

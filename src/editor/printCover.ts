@@ -2,7 +2,7 @@
  * Print an already rendered cover; millimetres keep the output independent of editor zoom.
  * The page is A4 portrait because WebKit browsers ignore `@page { size: landscape }` and shrink
  * a landscape layout to fit, losing the real dimensions. The cover is rotated in pixels rather
- * than with a CSS transform, so the print document stays a plain image the browser lays out fast.
+ * than with a CSS transform, so the print document stays a plain image.
  */
 export async function printCover(source: HTMLCanvasElement, width: number, height: number) {
   // Leave space for crop marks and the printer's non-printable edges.
@@ -17,14 +17,15 @@ export async function printCover(source: HTMLCanvasElement, width: number, heigh
   context.translate(rotated.width, 0)
   context.rotate(Math.PI / 2)
   context.drawImage(source, 0, 0)
-  const blob = await new Promise<Blob>((resolve, reject) => rotated.toBlob((value) => value ? resolve(value) : reject(new Error('Unable to prepare the cover for printing.')), 'image/png'))
-  const url = URL.createObjectURL(blob)
+  // Encode synchronously: some browsers (WebKit) only open the print dialog while the click's
+  // user activation is still fresh, and an async PNG encode of a full-size cover can outlast it.
+  const url = rotated.toDataURL('image/png')
   // On the sheet the cover is `height` mm wide and `width` mm tall.
   const sheetWidth = height, sheetHeight = width
   const frame = document.createElement('iframe')
   frame.title = 'Print cover'
   frame.style.cssText = 'position:fixed;width:0;height:0;border:0;left:-10000px;top:0'
-  const cleanup = () => { frame.remove(); URL.revokeObjectURL(url) }
+  const cleanup = () => frame.remove()
   document.body.append(frame)
   try {
     const doc = frame.contentDocument!
