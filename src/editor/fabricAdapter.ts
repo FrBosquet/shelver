@@ -52,7 +52,22 @@ export function imageFilters(settings: ImageFilters = {}) {
   ]
 }
 
-export function attachImageFit(frame: Rect, pattern: Pattern, element: ImageElement, asset: Pick<Asset, 'width' | 'height'>) {
+// WebKit marks the whole canvas as insecure when a pattern is built from an SVG image,
+// which breaks toDataURL (print and PNG export). Drawing the SVG into a plain canvas
+// first keeps the editor canvas clean. Rasterize generously so small logos stay sharp.
+const svgRasterSide = 4096
+export function rasterizeSvgSource(source: HTMLImageElement, asset: Pick<Asset, 'width' | 'height'>): { source: HTMLImageElement | HTMLCanvasElement, scale: number } {
+  const scale = Math.max(1, svgRasterSide / Math.max(asset.width, asset.height))
+  const output = document.createElement('canvas')
+  output.width = Math.max(1, Math.round(asset.width * scale))
+  output.height = Math.max(1, Math.round(asset.height * scale))
+  const context = output.getContext('2d')
+  if (!context) return { source, scale: 1 }
+  context.drawImage(source, 0, 0, output.width, output.height)
+  return { source: output, scale: output.width / asset.width }
+}
+
+export function attachImageFit(frame: Rect, pattern: Pattern, element: ImageElement, asset: Pick<Asset, 'width' | 'height'>, sourceScale = 1) {
   const update = () => {
     const scale = frame.getObjectScaling()
     const sx = Math.abs(scale.x), sy = Math.abs(scale.y)
@@ -63,7 +78,7 @@ export function attachImageFit(frame: Rect, pattern: Pattern, element: ImageElem
       : element.fit === 'contain' ? Math.min(width / asset.width, height / asset.height) : 1) * (element.imageScale ?? 1)
     const offsetX = ((width - asset.width * factor) * (element.focalX ?? 0.5) + (element.offsetX ?? 0)) / sx
     const offsetY = ((height - asset.height * factor) * (element.focalY ?? 0.5) + (element.offsetY ?? 0)) / sy
-    const x = factor / sx, y = factor / sy
+    const x = factor / sx / sourceScale, y = factor / sy / sourceScale
     if (pattern.offsetX !== offsetX || pattern.offsetY !== offsetY || pattern.patternTransform?.[0] !== x || pattern.patternTransform?.[3] !== y) {
       pattern.offsetX = offsetX
       pattern.offsetY = offsetY
@@ -237,11 +252,13 @@ export async function renderElement(element: Element, assets: Record<string, Ass
     ...(element.type === 'table' ? { lockScalingFlip: true } : {}),
   })
   if (element.type === 'image' && element.fit && object instanceof FabricImage) {
-    const source = object.getElement()
     const asset = builtinAsset(element.assetId) ?? assets[element.assetId]
+    let source: HTMLImageElement | HTMLCanvasElement = object.getElement() as HTMLImageElement | HTMLCanvasElement
+    let sourceScale = 1
+    if (asset.mimeType === 'image/svg+xml' && source.tagName === 'IMG') ({ source, scale: sourceScale } = rasterizeSvgSource(source as HTMLImageElement, asset))
     const pattern = new Pattern({ source, repeat: element.fit === 'repeat' ? 'repeat' : 'no-repeat' })
     const frame = new Rect({ ...object.toObject(), strokeWidth: 0, fill: pattern })
-    attachImageFit(frame, pattern, element, asset)
+    attachImageFit(frame, pattern, element, asset, sourceScale)
     object.dispose()
     object = frame
   }
