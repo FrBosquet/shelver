@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Asset, Project } from '../domain/types'
 import { imageDimensions } from '../assets/imageDimensions'
+import { normalizeRasterImage } from '../assets/imageFormat'
 import { referencedAssetIds } from '../domain/composition'
 
 function AssetPreview({ asset }: { asset: Asset }) {
@@ -47,10 +48,17 @@ export function AssetPicker({ project, assets, title = 'Select image', onUpload,
     const accepted: Asset[] = [], failures: string[] = []
     for (const file of files) {
       try {
-        const mimeType = file.type || (/\.svg$/i.test(file.name) ? 'image/svg+xml' : '')
-        if (!['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'].includes(mimeType) || file.size > 100 * 1024 * 1024) throw new Error('Use PNG, JPEG, WebP or SVG below 100 MiB.')
-        const blob = mimeType === file.type ? file : new Blob([file], { type: mimeType })
-        const { width, height } = await imageDimensions(blob)
+        const declared = file.type || (/\.svg$/i.test(file.name) ? 'image/svg+xml' : '')
+        if ((declared && !declared.startsWith('image/')) || file.size > 100 * 1024 * 1024) throw new Error('Use PNG, JPEG, WebP or SVG below 100 MiB.')
+        let image: { blob: Blob; mimeType: string; width: number; height: number }
+        if (declared === 'image/svg+xml') {
+          const blob = declared === file.type ? file : new Blob([file], { type: declared })
+          image = { blob, mimeType: declared, ...await imageDimensions(blob) }
+        } else {
+          // Trust the bytes, not the extension: a renamed TIFF or PNG must not be stored as JPEG.
+          image = await normalizeRasterImage(file).catch(() => { throw new Error('Use PNG, JPEG, WebP or SVG below 100 MiB.') })
+        }
+        const { blob, mimeType, width, height } = image
         if (width > 16000 || height > 16000 || width * height > 64_000_000) throw new Error('Maximum size: 16,000 px per side and 64 megapixels.')
         accepted.push({ id: crypto.randomUUID(), name: file.name, blob, mimeType, width, height })
       } catch (cause) { failures.push(`${file.name}: ${cause instanceof Error ? cause.message : 'Unable to open image.'}`) }

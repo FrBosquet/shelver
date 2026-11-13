@@ -123,6 +123,23 @@ describe('.coverproject packages', () => {
     expect(recovered.projects.find((current) => current.id === project.id)).toEqual(project)
   })
 
+  it('exports artwork whose saved type came from a misleading file extension', async () => {
+    const { project, asset } = fixture()
+    // A PNG renamed to .jpg is reported by browsers as image/jpeg.
+    const renamed: Asset = { ...asset, name: 'cover_tif_jpgcopy.jpg', mimeType: 'image/jpeg', blob: new Blob([await asset.blob.arrayBuffer()], { type: 'image/jpeg' }) }
+    const blob = await exportCoverProject(project, { [renamed.id]: renamed })
+    const manifest = JSON.parse(strFromU8(unzipSync(new Uint8Array(await blob.arrayBuffer()))['manifest.json'])) as ProjectPackage
+    expect(manifest.assets[0]).toMatchObject({ mimeType: 'image/png', path: 'assets/0.png' })
+    const imported = await importCoverProject(blob)
+    expect(imported.assets[0]).toMatchObject({ id: asset.id, mimeType: 'image/png' })
+  })
+
+  it('still rejects artwork that is not a supported image', async () => {
+    const { project, asset } = fixture()
+    const tiff: Asset = { ...asset, mimeType: 'image/jpeg', blob: new Blob([new Uint8Array([73, 73, 42, 0, 8, 0, 0, 0])], { type: 'image/jpeg' }) }
+    await expect(exportCoverProject(project, { [tiff.id]: tiff })).rejects.toThrow('Invalid artwork')
+  })
+
   it('exports only referenced assets and supports text-only projects', async () => {
     const project = createProject(pcTemplate)
     const { asset } = fixture()
