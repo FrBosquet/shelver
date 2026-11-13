@@ -126,8 +126,8 @@ export function App() {
             <button disabled={Boolean(packageBusy)} onClick={() => void exportProject(activeProject)}>{packageBusy === 'export' ? 'Preparing backup…' : 'Export project'}</button>
           </div>
           <Suspense fallback={<p className="loading-message" role="status">Opening your workspace…</p>}>
-            <div className={`editor-workspace${activeProject.composition.design ? ' design-workspace' : ''}`}>
-            <Editor onFormat={(format) => store.changeFormat(activeProject.id, format)} key={activeProject.id} revision={history[activeProject.id]?.revision ?? 0} project={activeProject} assets={assets} onUploadAssets={(uploaded) => store.addProjectAssets(activeProject.id, uploaded)}
+            <div key={activeProject.id} className={`editor-workspace${activeProject.composition.design ? ' design-workspace' : ''}`}>
+            <Editor onFormat={(format) => store.changeFormat(activeProject.id, format)} revision={history[activeProject.id]?.revision ?? 0} project={activeProject} assets={assets} onUploadAssets={(uploaded) => store.addProjectAssets(activeProject.id, uploaded)}
               inspectorHost={inspectorHost} selectedBlockId={selectedBlock?.projectId === activeProject.id ? selectedBlock.id : ''}
               onSelectBlock={(id) => setSelectedBlock((current) => ({ projectId: activeProject.id, id, request: (current?.request ?? 0) + 1 }))}
               initialZoom={zooms[activeProject.id]} onZoomChange={(zoom) => setZooms((current) => ({ ...current, [activeProject.id]: zoom }))}
@@ -139,7 +139,7 @@ export function App() {
                 store.updateDesign(activeProject.id, next, [], undefined, false)
               }}
               onChange={(elements, asset, group) => changeElements(activeProject.id, elements, asset, group)} />
-            {activeProject.composition.design && <TemplateInspector onElementControlsHost={setInspectorHost} key={activeProject.id} project={activeProject} assets={assets} onUploadAssets={(uploaded) => store.addProjectAssets(activeProject.id, uploaded)} selectionRequest={selectedBlock?.request ?? 0} selectedBlockId={selectedBlock?.projectId === activeProject.id ? selectedBlock.id : ''} onSelectBlock={(id) => setSelectedBlock((current) => ({ projectId: activeProject.id, id, request: (current?.request ?? 0) + 1 }))} onChange={updateDesign} onFormat={(format) => store.changeFormat(activeProject.id, format)} onInteractionStart={store.beginInteraction} onInteractionEnd={store.endInteraction} />}
+            {activeProject.composition.design && <TemplateInspector onElementControlsHost={setInspectorHost} project={activeProject} assets={assets} onUploadAssets={(uploaded) => store.addProjectAssets(activeProject.id, uploaded)} selectionRequest={selectedBlock?.request ?? 0} selectedBlockId={selectedBlock?.projectId === activeProject.id ? selectedBlock.id : ''} onSelectBlock={(id) => setSelectedBlock((current) => ({ projectId: activeProject.id, id, request: (current?.request ?? 0) + 1 }))} onChange={updateDesign} onFormat={(format) => store.changeFormat(activeProject.id, format)} onInteractionStart={store.beginInteraction} onInteractionEnd={store.endInteraction} />}
             </div>
           </Suspense>
         </> : <div className="library">
