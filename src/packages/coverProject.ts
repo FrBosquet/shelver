@@ -6,6 +6,7 @@ import { isRecord, supportedVersion, validAsset, validProject } from '../domain/
 import { referencedAssetIds } from '../domain/composition'
 import { isSvgDocument, imageDimensions } from '../assets/imageDimensions'
 import { builtinAsset, bundledSvg } from '../assets/logoLibrary'
+import { normalizeRasterImage, sniffRasterType } from '../assets/imageFormat'
 
 export const PACKAGE_LIMITS = { archive: 100 * 1024 * 1024, expanded: 200 * 1024 * 1024, manifest: 2 * 1024 * 1024, assets: 256 }
 const extensions: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/svg+xml': 'svg' }
@@ -53,6 +54,17 @@ async function checkImage(asset: Asset): Promise<void> {
   }
 }
 
+async function repairRaster(asset: Asset, bytes: Uint8Array<ArrayBuffer>): Promise<{ bytes: Uint8Array<ArrayBuffer>; mimeType: string } | null> {
+  const detected = sniffRasterType(bytes)
+  if (detected) return { bytes, mimeType: detected }
+  if (typeof createImageBitmap !== 'function') return null
+  try {
+    const image = await normalizeRasterImage(asset.blob)
+    if (image.width !== asset.width || image.height !== asset.height) return null
+    return { bytes: new Uint8Array(await image.blob.arrayBuffer()), mimeType: image.mimeType }
+  } catch { return null }
+}
+
 export async function exportCoverProject(project: Project, assets: Record<string, Asset>): Promise<Blob> {
   const snapshot = structuredClone(project)
   if (!validProject(snapshot)) throw new Error('This project cannot be exported because its composition is invalid.')
@@ -67,12 +79,20 @@ export async function exportCoverProject(project: Project, assets: Record<string
     if (!validAsset(asset) || !Object.hasOwn(extensions, asset.mimeType)) throw new Error(`Missing or unsupported artwork: ${id}`)
     total += asset.blob.size
     if (total > PACKAGE_LIMITS.archive) throw new Error('This project is too large for a 100 MiB package.')
-    const bytes = new Uint8Array(await asset.blob.arrayBuffer())
-    if (!checkSignature(bytes, asset.mimeType)) throw new Error(`Invalid artwork: ${asset.name}`)
-    if (asset.mimeType === 'image/svg+xml') await checkImage(asset)
-    const path = `assets/${index}.${extensions[asset.mimeType]}`
+    let bytes = new Uint8Array(await asset.blob.arrayBuffer())
+    let mimeType = asset.mimeType
+    if (!checkSignature(bytes, mimeType)) {
+      // Artwork saved before uploads were sniffed may carry the type of its
+      // file extension (e.g. a TIFF or PNG renamed to .jpg). Package it with
+      // its real type, converting formats other browsers cannot open to PNG.
+      const fixed = mimeType === 'image/svg+xml' ? null : await repairRaster(asset, bytes)
+      if (!fixed) throw new Error(`Invalid artwork: ${asset.name}`)
+      ;({ bytes, mimeType } = fixed)
+    }
+    if (mimeType === 'image/svg+xml') await checkImage(asset)
+    const path = `assets/${index}.${extensions[mimeType]}`
     files[path] = [bytes, { level: 0 }]
-    const descriptor = { id: asset.id, name: asset.name, mimeType: asset.mimeType, width: asset.width, height: asset.height, path, size: bytes.length, sha256: await digest(bytes) }
+    const descriptor = { id: asset.id, name: asset.name, mimeType, width: asset.width, height: asset.height, path, size: bytes.length, sha256: await digest(bytes) }
     if (!validDescriptor(descriptor)) throw new Error(`Artwork exceeds the supported dimensions: ${asset.name}`)
     packaged.push(descriptor)
   }
